@@ -2,6 +2,10 @@
 #include <GL/glew.h>
 #include <SDL2/SDL_opengl.h>
 #include <GL/glu.h>
+#include <glm/vec2.hpp>
+#include <glm/mat4x4.hpp>
+#include <glm/gtx/transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include <chrono>
 #include <cmath>
@@ -10,12 +14,11 @@
 
 #include "glpp.h"
 #include "graphics.h"
-#include "vec.h"
-
 
 constexpr int WINDOW_HEIGHT = 800;
 constexpr int WINDOW_WIDTH = 800;
 
+// Represents the in-game understanding of user inputs.
 struct ShipController {
   bool thruster = false;
   bool rotate_clockwise = false;
@@ -26,24 +29,27 @@ struct ShipController {
   }
 };
 
+glm::mat4x4 transformation(glm::vec2 pos, float angle, float scale) {
+  glm::mat4x4 transform = glm::translate(glm::mat4(1.f),
+                                         glm::vec3(pos.x, pos.y, 0));
+  transform = glm::rotate(transform, angle, glm::vec3(0, 0, 1));
+  transform *= glm::scale(glm::mat4(1.f), glm::vec3(scale));
+  return transform;
+}
+
 Error run() {
   Graphics gfx;
   if (Error e = gfx.init(WINDOW_WIDTH, WINDOW_HEIGHT); !e.ok) return e;
-
 
   Shader verts(Shader::Type::VERTEX);
   verts.add_source(
 		"#version 140\n"
     "in vec2 vertex_pos;"
     "in vec2 tex_coord;"
+    "uniform mat4 transform;"
     "out vec2 TexCoord;"
-    "uniform vec2 linear_transform;"
-    "uniform float angle;"
-    "uniform float scale;"
     "void main() {"
-      "mat2 rot = mat2(vec2(cos(angle), -sin(angle)),"
-      "                vec2(sin(angle),  cos(angle)));"
-      "gl_Position = vec4((vertex_pos * rot + linear_transform) * scale, 1, 1);"
+      "gl_Position = transform * vec4(vertex_pos, 1, 1);"
       "TexCoord = tex_coord;"
     "}"
   );
@@ -54,7 +60,6 @@ Error run() {
   frag.add_source(
     "#version 140\n"
     "in vec2 TexCoord;"
-    "in vec2 tex_coord;"
     "out vec4 FragColor;"
     "uniform sampler2D tex;"
     "void main() {"
@@ -99,8 +104,6 @@ Error run() {
   gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
   gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-  //gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR,
-  //                 {.8f, 0.5f, 0.8f, 1.f});
 
   //GLuint vao;
   //glGenVertexArrays(1, &vao);
@@ -109,8 +112,8 @@ Error run() {
   glEnable(GL_BLEND);
 
   struct Vertex {
-    Vec<GLfloat, 2> pos;
-    Vec<GLfloat, 2> tex_coord;
+    glm::vec2 pos;
+    glm::vec2 tex_coord;
   };
 
   //VBO data
@@ -135,17 +138,24 @@ Error run() {
   gl::bufferData(GL_ELEMENT_ARRAY_BUFFER, vbo_elems, GL_STATIC_DRAW);
 
   ShipController ship_controller;
-  float ship_velocity = 0;
+  float ship_speed = 0;
   float ship_acc = 0;
   float ship_rotation = 0;
   float ship_rotation_vel = 0;
-  auto ship_pos = Vec(0.0f, 0.0f);
+  auto ship_pos = glm::vec2(0.0f, 0.0f);
 
   auto time = std::chrono::high_resolution_clock::now();
   std::chrono::milliseconds dtime;
 
   bool keep_going = true;
   SDL_Event e;
+
+  auto ship_texture_uni = gl_program.uniform_location("tex");
+  if (ship_texture_uni == -1) return Error("tex is not a valid uniform location.");
+
+  auto ship_transform_uni = gl_program.uniform_location("transform");
+  if (ship_transform_uni == -1) return Error("linear_transformation not valid.");
+
   while (keep_going) {
     while (SDL_PollEvent(&e) != 0) {
       switch (e.type) {
@@ -174,30 +184,22 @@ Error run() {
     if (ship_controller.rotate_counterclockwise) ship_rotation_vel -= 0.001f;
 
     ship_rotation += ship_rotation_vel * dtime.count();
-    ship_velocity += ship_acc * dtime.count();
-    ship_pos = ship_pos +
-      ship_velocity * Vec(std::cos(ship_rotation), std::sin(ship_rotation)) * dtime.count();
+    ship_speed += ship_acc * dtime.count();
+    auto pos_change = glm::vec2(std::cos(ship_rotation),
+                                std::sin(ship_rotation)); 
+    pos_change *= ship_speed * dtime.count();
+    ship_pos = ship_pos + pos_change;
     ship_rotation_vel = 0;
     ship_acc = 0;
 
     gl::clear();
+
     gl_program.use();
 
-    auto uni = gl_program.uniform_location("tex");
-    if (uni == -1) return Error("tex is not a valid uniform location.");
-    gl::uniform(uni, ship_texture);
+    gl::uniform(ship_texture_uni, ship_texture);
 
-    auto linear_trans = gl_program.uniform_location("linear_transform");
-    if (linear_trans == -1) return Error("linear_transformation not valid.");
-    gl::uniform(linear_trans, ship_pos.x(), ship_pos.y());
-
-    auto angle = gl_program.uniform_location("angle");
-    if (angle == -1) return Error("angle not valid uniform");
-    gl::uniform(angle, ship_rotation);
-
-    auto scale = gl_program.uniform_location("scale");
-    if (scale == -1) return Error("scale not valid uniform");
-    gl::uniform(scale, 0.5f);
+    glm::mat4x4 transform = transformation(ship_pos, ship_rotation, 0.5f);
+    glUniformMatrix4fv(ship_transform_uni, 1, GL_FALSE, glm::value_ptr(transform));
 
     gl::enableVertexAttribArray(gl_vertext_pos);
     gl::vertexAttribPointer<float>(gl_vertext_pos, 2, GL_FALSE, &Vertex::pos);

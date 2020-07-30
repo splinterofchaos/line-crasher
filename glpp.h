@@ -38,6 +38,10 @@ struct GlTraits<GLint> {
   static constexpr auto& uniform2 = glUniform2i;
   static constexpr auto& uniform3 = glUniform3i;
   static constexpr auto& uniform4 = glUniform4i;
+  static constexpr auto& uniform1v = glUniform1iv;
+  static constexpr auto& uniform2v = glUniform2iv;
+  static constexpr auto& uniform3v = glUniform3iv;
+  static constexpr auto& uniform4v = glUniform4iv;
 };
 
 template<>
@@ -50,6 +54,10 @@ struct GlTraits<GLuint> {
   static constexpr auto& uniform2 = glUniform2ui;
   static constexpr auto& uniform3 = glUniform3ui;
   static constexpr auto& uniform4 = glUniform4ui;
+  static constexpr auto& uniform1v = glUniform1uiv;
+  static constexpr auto& uniform2v = glUniform2uiv;
+  static constexpr auto& uniform3v = glUniform3uiv;
+  static constexpr auto& uniform4v = glUniform4uiv;
 };
 
 template<>
@@ -61,6 +69,10 @@ struct GlTraits<GLfloat> {
   static constexpr auto& uniform2 = glUniform2f;
   static constexpr auto& uniform3 = glUniform3f;
   static constexpr auto& uniform4 = glUniform4f;
+  static constexpr auto& uniform1v = glUniform1fv;
+  static constexpr auto& uniform2v = glUniform2fv;
+  static constexpr auto& uniform3v = glUniform3fv;
+  static constexpr auto& uniform4v = glUniform4fv;
 };
 
 inline void clearColor(GLclampf r, GLclampf g, GLclampf b, GLclampf a) {
@@ -133,6 +145,11 @@ inline void clear(GLbitfield mask = GL_COLOR_BUFFER_BIT) {
 
 // TODO: support the "v" variants.
 template<typename T>
+inline void uniformv(GLint location, GLsizei size, T data) {
+  GlTraits<T>::uniformv(location, size, data);
+}
+
+template<typename T>
 inline void uniform(GLint location, T data) {
   GlTraits<T>::uniform1(location, data);
 }
@@ -150,6 +167,26 @@ inline void uniform(GLint location, T data, T data2, T data3) {
 template<typename T>
 inline void uniform(GLint location, T data, T data2, T data3, T data4) {
   GlTraits<T>::uniform4(location, data, data2, data3, data4);
+}
+
+template<typename T>
+inline void uniform1v(GLint location, GLsizei count, const T* value) {
+  GlTraits<T>::uniform1v(location, count, value);
+}
+
+template<typename T>
+inline void uniform2v(GLint location, GLsizei count, const T* value) {
+  GlTraits<T>::uniform2v(location, count, value);
+}
+
+template<typename T>
+inline void uniform3v(GLint location, GLsizei count, const T* value) {
+  GlTraits<T>::uniform3v(location, count, value);
+}
+
+template<typename T>
+inline void uniform4v(GLint location, GLsizei count, const T* value) {
+  GlTraits<T>::uniform4v(location, count, value);
 }
 
 inline void enableVertexAttribArray(GLuint index) {
