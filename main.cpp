@@ -11,8 +11,8 @@
 #include "vec.h"
 
 
-constexpr int WINDOW_HEIGHT = 640;
-constexpr int WINDOW_WIDTH = 480;
+constexpr int WINDOW_HEIGHT = 800;
+constexpr int WINDOW_WIDTH = 800;
 
 Error run() {
   Graphics gfx;
@@ -60,18 +60,17 @@ Error run() {
   //Initialize clear color
   gl::clearColor(0.f, 0.f, 0.f, 1.f);
 
-  SDL_Surface* floor_surface = SDL_LoadBMP("art/goblin.bmp");
-  if (floor_surface == nullptr) {
-    return Error(concat_strings("Failed to load art/floor.bmp: ",
-                                SDL_GetError()));
+  SDL_Surface* ship_surface = SDL_LoadBMP("art/ship 512 RGBA8.bmp");
+  if (ship_surface == nullptr) {
+    return Error(concat_strings("Failed to load image: ", SDL_GetError()));
   }
 
-  GLuint floor_texture = gl::genTexture();
-  gl::bindTexture(GL_TEXTURE_2D, floor_texture);
-  gl::texImage2D(GL_TEXTURE_2D, 0, GL_RGB, floor_surface->w,
-                 floor_surface->h, 0, GL_RGB, GL_UNSIGNED_BYTE,
-                 floor_surface->pixels);
-  SDL_FreeSurface(floor_surface);
+  GLuint ship_texture = gl::genTexture();
+  gl::bindTexture(GL_TEXTURE_2D, ship_texture);
+  gl::texImage2D(GL_TEXTURE_2D, 0, GL_RGBA, ship_surface->w,
+                 ship_surface->h, 0, GL_BGRA, GL_UNSIGNED_BYTE,
+                 ship_surface->pixels);
+  SDL_FreeSurface(ship_surface);
 
   if (auto e = glGetError(); e != GL_NO_ERROR) {
     return Error(concat_strings(
@@ -89,6 +88,8 @@ Error run() {
   //GLuint vao;
   //glGenVertexArrays(1, &vao);
   //glBindVertexArray(vao);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  glEnable(GL_BLEND);
 
   struct Vertex {
     Vec<GLfloat, 2> pos;
@@ -98,15 +99,15 @@ Error run() {
   //VBO data
   Vertex vertecies[] = {
     // Position    TexCoords
-    {{-0.5f, -0.5f},  {1.0f, 1.0f}},
-    {{ 0.5f, -0.5f},  {0.0f, 1.0f}},
-    {{ 0.5f,  0.5f},  {0.0f, 0.0f}},
-    {{-0.5f,  0.5f},  {1.0f, 0.0f}}
+    {{-0.5f, -0.5f},  {0.0f, 1.0f}},
+    {{ 0.5f, -0.5f},  {1.0f, 1.0f}},
+    {{ 0.5f,  0.5f},  {1.0f, 0.0f}},
+    {{-0.5f,  0.5f},  {0.0f, 0.0f}}
   };
 
   GLuint vbo = gl::genBuffer();
   gl::bindBuffer(GL_ARRAY_BUFFER, vbo);
-  gl::bufferData(GL_ARRAY_BUFFER, vertecies, GL_STATIC_DRAW);
+  gl::bufferData(GL_ARRAY_BUFFER, vertecies, GL_DYNAMIC_DRAW);
 
   //IBO data
   GLuint vbo_elems[] = {0, 1, 2,
@@ -128,7 +129,7 @@ Error run() {
     // This must happen before gl_program.use().
     auto uni = gl_program.uniform_location("tex");
     if (uni == -1) return Error("tex is not a valid uniform location.");
-    gl::uniform(uni, floor_texture);
+    gl::uniform(uni, ship_texture);
 
     gl_program.use();
 
