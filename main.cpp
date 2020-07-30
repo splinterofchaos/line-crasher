@@ -3,6 +3,8 @@
 #include <SDL2/SDL_opengl.h>
 #include <GL/glu.h>
 
+#include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 
@@ -13,6 +15,16 @@
 
 constexpr int WINDOW_HEIGHT = 800;
 constexpr int WINDOW_WIDTH = 800;
+
+struct ShipController {
+  bool thruster = false;
+  bool rotate_clockwise = false;
+  bool rotate_counterclockwise = false;
+
+  void reset() {
+    thruster = rotate_clockwise = rotate_counterclockwise = false;
+  }
+};
 
 Error run() {
   Graphics gfx;
@@ -25,8 +37,13 @@ Error run() {
     "in vec2 vertex_pos;"
     "in vec2 tex_coord;"
     "out vec2 TexCoord;"
+    "uniform vec2 linear_transform;"
+    "uniform float angle;"
+    "uniform float scale;"
     "void main() {"
-      "gl_Position = vec4(vertex_pos, 0, 1);"
+      "mat2 rot = mat2(vec2(cos(angle), -sin(angle)),"
+      "                vec2(sin(angle),  cos(angle)));"
+      "gl_Position = vec4((vertex_pos * rot + linear_transform) * scale, 1, 1);"
       "TexCoord = tex_coord;"
     "}"
   );
@@ -82,8 +99,8 @@ Error run() {
   gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
   gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-  gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR,
-                   {.8f, 0.5f, 0.8f, 1.f});
+  //gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR,
+  //                 {.8f, 0.5f, 0.8f, 1.f});
 
   //GLuint vao;
   //glGenVertexArrays(1, &vao);
@@ -117,22 +134,70 @@ Error run() {
   gl::bindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo_elems_id);
   gl::bufferData(GL_ELEMENT_ARRAY_BUFFER, vbo_elems, GL_STATIC_DRAW);
 
+  ShipController ship_controller;
+  float ship_velocity = 0;
+  float ship_acc = 0;
+  float ship_rotation = 0;
+  float ship_rotation_vel = 0;
+  auto ship_pos = Vec(0.0f, 0.0f);
+
+  auto time = std::chrono::high_resolution_clock::now();
+  std::chrono::milliseconds dtime;
+
   bool keep_going = true;
   SDL_Event e;
   while (keep_going) {
     while (SDL_PollEvent(&e) != 0) {
-      if (e.type == SDL_QUIT) keep_going = false;
+      switch (e.type) {
+        case SDL_QUIT: keep_going = false; break;
+        case SDL_KEYDOWN: case SDL_KEYUP:
+          bool* control = nullptr;
+          switch (e.key.keysym.sym) {
+            case SDLK_UP: control = &ship_controller.thruster; break;
+            case SDLK_LEFT:
+              control = &ship_controller.rotate_counterclockwise; break;
+            case SDLK_RIGHT:
+              control = &ship_controller.rotate_clockwise; break;
+            case 'q': keep_going = false; break;
+          }
+
+          if (control) *control = e.key.type == SDL_KEYDOWN;
+      }
     }
 
-    gl::clear();
+    auto new_time = std::chrono::high_resolution_clock::now();
+    dtime = std::chrono::duration_cast<std::chrono::milliseconds>(new_time - time);
+    time = new_time;
 
-    // This must happen before gl_program.use().
+    if (ship_controller.thruster) ship_acc = 0.000001f;
+    if (ship_controller.rotate_clockwise) ship_rotation_vel += 0.001f;
+    if (ship_controller.rotate_counterclockwise) ship_rotation_vel -= 0.001f;
+
+    ship_rotation += ship_rotation_vel * dtime.count();
+    ship_velocity += ship_acc * dtime.count();
+    ship_pos = ship_pos +
+      ship_velocity * Vec(std::cos(ship_rotation), std::sin(ship_rotation)) * dtime.count();
+    ship_rotation_vel = 0;
+    ship_acc = 0;
+
+    gl::clear();
+    gl_program.use();
+
     auto uni = gl_program.uniform_location("tex");
     if (uni == -1) return Error("tex is not a valid uniform location.");
     gl::uniform(uni, ship_texture);
 
-    gl_program.use();
+    auto linear_trans = gl_program.uniform_location("linear_transform");
+    if (linear_trans == -1) return Error("linear_transformation not valid.");
+    gl::uniform(linear_trans, ship_pos.x(), ship_pos.y());
 
+    auto angle = gl_program.uniform_location("angle");
+    if (angle == -1) return Error("angle not valid uniform");
+    gl::uniform(angle, ship_rotation);
+
+    auto scale = gl_program.uniform_location("scale");
+    if (scale == -1) return Error("scale not valid uniform");
+    gl::uniform(scale, 0.5f);
 
     gl::enableVertexAttribArray(gl_vertext_pos);
     gl::vertexAttribPointer<float>(gl_vertext_pos, 2, GL_FALSE, &Vertex::pos);
