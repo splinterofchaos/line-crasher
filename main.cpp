@@ -257,6 +257,12 @@ Error run() {
                        &line_shader_bindings);
   ecs.write_new_entity(Transform{glm::vec2(1.5, 1), 3.14 / 1.0, 2},
                        &line_shader_bindings);
+  ecs.write_new_entity(Transform{glm::vec2(1, 1.2), 3.14 / 2, 1},
+                       &line_shader_bindings);
+  ecs.write_new_entity(Transform{glm::vec2(1.5, 1.2), 3.14 / 1.5, 1.5},
+                       &line_shader_bindings);
+  ecs.write_new_entity(Transform{glm::vec2(1.5, 1.2), 3.14 / 1.0, 2},
+                       &line_shader_bindings);
 
   // TODO: These should eventually be stored into components, too.
   ShipController ship_controller;
@@ -292,18 +298,23 @@ Error run() {
 
     auto new_time = std::chrono::high_resolution_clock::now();
     dtime = std::chrono::duration_cast<std::chrono::milliseconds>(new_time - time);
+    static auto highest_dtime = decltype(dtime.count())(0);
+    if (dtime.count() > highest_dtime) {
+      std::cout << "new highest ftime: " << dtime.count() << std::endl;
+      highest_dtime = dtime.count();
+    }
     time = new_time;
 
     if (ship_controller.thruster) ship_acc = 0.000001f;
-    if (ship_controller.rotate_clockwise) ship_rotation_vel += 0.001f;
-    if (ship_controller.rotate_counterclockwise) ship_rotation_vel -= 0.001f;
+    if (ship_controller.rotate_clockwise) ship_rotation_vel -= 0.001f;
+    if (ship_controller.rotate_counterclockwise) ship_rotation_vel += 0.001f;
 
     Transform& ship_transform = ecs.read_or_panic<Transform>(player);
 
     ship_transform.rotation += ship_rotation_vel * dtime.count();
     ship_speed += ship_acc * dtime.count();
     auto pos_change = glm::vec2(std::cos(ship_transform.rotation),
-                                std::sin(ship_transform.rotation)); 
+                                std::sin(ship_transform.rotation));
     pos_change *= ship_speed * dtime.count();
 
     ship_transform.pos = ship_transform.pos + pos_change;
@@ -315,26 +326,31 @@ Error run() {
 
     gl::clear();
 
+    ShaderBindings* last_bindings = nullptr;
     for (const auto& [id, transform, shader_bindings] :
          ecs.read_all<Transform, ShaderBindings*>()) {
-      shader_bindings->program->use();
 
-      gl::bindBuffer(GL_ARRAY_BUFFER, shader_bindings->vbo);
+      if (last_bindings != shader_bindings) {
+        shader_bindings->program->use();
+
+        gl::bindBuffer(GL_ARRAY_BUFFER, shader_bindings->vbo);
+
+        gl::enableVertexAttribArray(shader_bindings->vertex_pos_attrib);
+        gl::vertexAttribPointer<float>(shader_bindings->vertex_pos_attrib, 2,
+                                       GL_FALSE, &Vertex::pos);
+
+        if (shader_bindings->tex_coord_attrib != -1) {
+          gl::enableVertexAttribArray(shader_bindings->tex_coord_attrib);
+          gl::vertexAttribPointer<float>(shader_bindings->tex_coord_attrib, 2,
+                                         GL_FALSE, &Vertex::tex_coord);
+        }
+      }
+      last_bindings = shader_bindings;
 
       glUniformMatrix4fv(
           shader_bindings->transform_uniform, 1, GL_FALSE,
           glm::value_ptr(transformation(transform.pos, transform.rotation,
                                         zoom)));
-
-      gl::enableVertexAttribArray(shader_bindings->vertex_pos_attrib);
-      gl::vertexAttribPointer<float>(shader_bindings->vertex_pos_attrib, 2,
-                                     GL_FALSE, &Vertex::pos);
-
-      if (shader_bindings->tex_coord_attrib != -1) {
-        gl::enableVertexAttribArray(shader_bindings->tex_coord_attrib);
-        gl::vertexAttribPointer<float>(shader_bindings->tex_coord_attrib, 2,
-                                       GL_FALSE, &Vertex::tex_coord);
-      }
 
       if (shader_bindings->length_uniform != -1) {
         gl::uniform(shader_bindings->length_uniform, transform.length);
