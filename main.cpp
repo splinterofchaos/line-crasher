@@ -126,6 +126,11 @@ struct ShaderBindings {
     : program(program), vbo(vbo) { }
 };
 
+struct Vertex {
+  glm::vec2 pos;
+  glm::vec2 tex_coord;
+};
+
 Error set_uniform(const GlProgram& program, const char* const name,
                   GLint& out) {
   out = program.uniform_location(name);
@@ -142,6 +147,39 @@ Error set_attribute(const GlProgram& program, const char* const name,
     return Error(concat_strings(name, " is not a valid attribute location"));
   }
   return Error();
+}
+
+void draw_object(const Transform& transform,
+                 const ShaderBindings* shader_bindings,
+                 float zoom) {
+  static const ShaderBindings* last_bindings = nullptr;
+  if (last_bindings != shader_bindings) {
+    shader_bindings->program->use();
+
+    gl::bindBuffer(GL_ARRAY_BUFFER, shader_bindings->vbo);
+
+    gl::enableVertexAttribArray(shader_bindings->vertex_pos_attrib);
+    gl::vertexAttribPointer<float>(shader_bindings->vertex_pos_attrib, 2,
+                                   GL_FALSE, &Vertex::pos);
+
+    if (shader_bindings->tex_coord_attrib != -1) {
+      gl::enableVertexAttribArray(shader_bindings->tex_coord_attrib);
+      gl::vertexAttribPointer<float>(shader_bindings->tex_coord_attrib, 2,
+                                     GL_FALSE, &Vertex::tex_coord);
+    }
+  }
+  last_bindings = shader_bindings;
+
+  glUniformMatrix4fv(
+      shader_bindings->transform_uniform, 1, GL_FALSE,
+      glm::value_ptr(transformation(transform.pos, transform.rotation,
+                                    zoom)));
+
+  if (shader_bindings->length_uniform != -1) {
+    gl::uniform(shader_bindings->length_uniform, transform.length);
+  }
+
+  gl::drawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 }
 
 Error run() {
@@ -182,11 +220,6 @@ Error run() {
 
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glEnable(GL_BLEND);
-
-  struct Vertex {
-    glm::vec2 pos;
-    glm::vec2 tex_coord;
-  };
 
   //VBO data
   Vertex quad_vertecies[] = {
@@ -326,37 +359,9 @@ Error run() {
 
     gl::clear();
 
-    ShaderBindings* last_bindings = nullptr;
     for (const auto& [id, transform, shader_bindings] :
          ecs.read_all<Transform, ShaderBindings*>()) {
-
-      if (last_bindings != shader_bindings) {
-        shader_bindings->program->use();
-
-        gl::bindBuffer(GL_ARRAY_BUFFER, shader_bindings->vbo);
-
-        gl::enableVertexAttribArray(shader_bindings->vertex_pos_attrib);
-        gl::vertexAttribPointer<float>(shader_bindings->vertex_pos_attrib, 2,
-                                       GL_FALSE, &Vertex::pos);
-
-        if (shader_bindings->tex_coord_attrib != -1) {
-          gl::enableVertexAttribArray(shader_bindings->tex_coord_attrib);
-          gl::vertexAttribPointer<float>(shader_bindings->tex_coord_attrib, 2,
-                                         GL_FALSE, &Vertex::tex_coord);
-        }
-      }
-      last_bindings = shader_bindings;
-
-      glUniformMatrix4fv(
-          shader_bindings->transform_uniform, 1, GL_FALSE,
-          glm::value_ptr(transformation(transform.pos, transform.rotation,
-                                        zoom)));
-
-      if (shader_bindings->length_uniform != -1) {
-        gl::uniform(shader_bindings->length_uniform, transform.length);
-      }
-
-      gl::drawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+      draw_object(transform, shader_bindings, zoom);
     }
 
     gfx.swap_buffers();
