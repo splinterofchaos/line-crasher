@@ -155,6 +155,7 @@ Error set_attribute(const GlProgram& program, const char* const name,
 
 void draw_object(const Transform& transform,
                  const ShaderBindings* shader_bindings,
+                 glm::vec2 camera_offset,
                  float zoom) {
   static const ShaderBindings* last_bindings = nullptr;
   if (last_bindings != shader_bindings) {
@@ -174,9 +175,12 @@ void draw_object(const Transform& transform,
   }
   last_bindings = shader_bindings;
 
+  glm::vec2 visual_pos = transform.pos;
+  visual_pos -= camera_offset;
+
   glUniformMatrix4fv(
       shader_bindings->transform_uniform, 1, GL_FALSE,
-      glm::value_ptr(transformation(transform.pos, transform.rotation,
+      glm::value_ptr(transformation(visual_pos, transform.rotation,
                                     zoom)));
 
   if (shader_bindings->length_uniform != -1) {
@@ -323,6 +327,8 @@ Error run() {
   bool keep_going = true;
   SDL_Event e;
 
+  glm::vec2 camera_offset(0.f);
+
   while (keep_going) {
     while (SDL_PollEvent(&e) != 0) {
       switch (e.type) {
@@ -372,6 +378,9 @@ Error run() {
       ship_rotation_vel = 0;
       ship_acc = 0;
 
+      camera_offset = pos_change;
+      camera_offset *= 100 / TIME_STEP_MS;
+      camera_offset += ship_transform.pos;
     }
     // TODO: make less linear.
     float zoom = 0.25f; // - ship_speed * 50;
@@ -380,6 +389,7 @@ Error run() {
 
     for (const auto& [id, transform, shader_bindings] :
          ecs.read_all<Transform, ShaderBindings*>()) {
+      draw_object(transform, shader_bindings, camera_offset, zoom);
     }
 
     gfx.swap_buffers();
