@@ -162,6 +162,9 @@ class EntityComponentSystem {
   // through) and manually sorted.
   std::vector<EntityId> entity_ids_;
 
+  // Entities to be deleted.
+  std::vector<EntityId> garbage_ids_;
+
   // We assign the ID's to ensure their uniqueness.
   EntityId next_id_ = { 1 };
 
@@ -213,6 +216,35 @@ class EntityComponentSystem {
     entity_ids_.push_back(next_id_);
     next_id_.id++;
     return entity_ids_.back();
+  }
+
+  void mark_to_delete(EntityId id) {
+    garbage_ids_.push_back(id);
+  }
+
+  template<typename U>
+  void delete_marked_component() {
+    auto garbage_it = garbage_ids_.begin();
+    auto pred = [&](const auto& component_data) {
+      const EntityId& id = component_data.id;
+      while (garbage_it != garbage_ids_.end() && *garbage_it < id)
+        ++garbage_it;
+      return (garbage_it != garbage_ids_.end() && id == *garbage_it);
+    };
+    std::erase_if(get_store<U>(), pred);
+  }
+
+  void deleted_marked_ids() {
+    std::sort(garbage_ids_.begin(), garbage_ids_.end());
+    auto garbage_it = garbage_ids_.begin();
+    auto pred = [&](const EntityId id) {
+      while (garbage_it != garbage_ids_.end() && *garbage_it < id)
+        ++garbage_it;
+      return (garbage_it != garbage_ids_.end() && id == *garbage_it);
+    };
+    std::erase_if(entity_ids_, pred);
+    (delete_marked_component<Components>(), ...);
+    garbage_ids_.clear();
   }
 
   enum WriteAction { CREATE_ENTRY, CREATE_OR_UPDATE };
