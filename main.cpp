@@ -198,6 +198,10 @@ std::chrono::milliseconds time_diff(
       new_time - old_time);
 }
 
+// This little tag just identifies an entity as a line segment as opposed to a
+// player or UI element.
+struct LineTag { };
+
 Error run() {
   Graphics gfx;
   if (Error e = gfx.init(WINDOW_WIDTH, WINDOW_HEIGHT); !e.ok) return e;
@@ -271,7 +275,7 @@ Error run() {
   gl::bindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo_elems_id);
   gl::bufferData(GL_ELEMENT_ARRAY_BUFFER, vbo_elems, GL_STATIC_DRAW);
 
-  EntityComponentSystem<Transform, ShaderBindings*> ecs;
+  EntityComponentSystem<Transform, ShaderBindings*, LineTag> ecs;
 
   ShaderBindings player_shader_bindings(&ship_shader_program, quad_vbo);
   if (Error e =
@@ -301,17 +305,17 @@ Error run() {
 
   // One should be roughly the width of the player ship.
   ecs.write_new_entity(Transform{glm::vec2(1, 1), 3.14 / 2, 1},
-                       &line_shader_bindings);
+                       &line_shader_bindings, LineTag{});
   ecs.write_new_entity(Transform{glm::vec2(1.5, 1), 3.14 / 1.5, 1.5},
-                       &line_shader_bindings);
+                       &line_shader_bindings, LineTag{});
   ecs.write_new_entity(Transform{glm::vec2(1.5, 1), 3.14 / 1.0, 2},
-                       &line_shader_bindings);
+                       &line_shader_bindings, LineTag{});
   ecs.write_new_entity(Transform{glm::vec2(1, 1.2), 3.14 / 2, 1},
-                       &line_shader_bindings);
+                       &line_shader_bindings, LineTag{});
   ecs.write_new_entity(Transform{glm::vec2(1.5, 1.2), 3.14 / 1.5, 1.5},
-                       &line_shader_bindings);
+                       &line_shader_bindings, LineTag{});
   ecs.write_new_entity(Transform{glm::vec2(1.5, 1.2), 3.14 / 1.0, 2},
-                       &line_shader_bindings);
+                       &line_shader_bindings, LineTag{});
 
   // TODO: These should eventually be stored into components, too.
   ShipController ship_controller;
@@ -357,6 +361,7 @@ Error run() {
       highest_dtime = dtime.count();
     }
 
+    // Update the player's ship.
     while (time_diff(last_physics_update, new_time) > TIME_STEP) {
       last_physics_update += TIME_STEP;
 
@@ -381,7 +386,21 @@ Error run() {
       camera_offset = pos_change;
       camera_offset *= 100 / TIME_STEP_MS;
       camera_offset += ship_transform.pos;
+
+      // TODO: Destroy lines we collide with. We do this inside each physics
+      // update to minimize the chance we go past a line entirely in one
+      // iteration. Obviously, we still have to implement that at some point.
+      // TODO: Actual triangle-line collision.
+      for (const auto& [id, line_transform, _] : ecs.read_all<Transform, LineTag>()) {
+        if (glm::distance(line_transform.pos, ship_transform.pos) < 0.75) {
+          std::cout << "Marking id=" << id.id << " to delete." << std::endl;
+          ecs.mark_to_delete(id);
+        }
+      }
     }
+
+    ecs.deleted_marked_ids();
+
     // TODO: make less linear.
     float zoom = 0.25f; // - ship_speed * 50;
 
