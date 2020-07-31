@@ -202,6 +202,35 @@ std::chrono::milliseconds time_diff(
 // player or UI element.
 struct LineTag { };
 
+glm::vec2 sin_cos_vector(float radians, float length = 1) {
+  return glm::vec2(std::cos(radians) * length, std::sin(radians) * length);
+}
+
+using Ecs = EntityComponentSystem<Transform, ShaderBindings*, LineTag>;
+
+class TrackGenerator {
+  glm::vec2 start_;
+  float heading_ = 0;  // The direction of the track.
+  ShaderBindings* shader_bindings_;
+
+public:
+  TrackGenerator(glm::vec2 start, ShaderBindings* bindings)
+    : start_(start), shader_bindings_(bindings) { }
+
+  void set_heading(float h) { heading_ = h; }
+  float heading() const { return heading_; }
+
+  const glm::vec2& start() { return start_; }
+
+  void write_track(Ecs& ecs);
+};
+
+void TrackGenerator::write_track(Ecs& ecs) {
+  ecs.write_new_entity(Transform{start_, heading_ + glm::half_pi<float>(), 1},
+                       shader_bindings_, LineTag{});
+  start_ += sin_cos_vector(heading_);
+}
+
 Error run() {
   Graphics gfx;
   if (Error e = gfx.init(WINDOW_WIDTH, WINDOW_HEIGHT); !e.ok) return e;
@@ -275,7 +304,7 @@ Error run() {
   gl::bindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo_elems_id);
   gl::bufferData(GL_ELEMENT_ARRAY_BUFFER, vbo_elems, GL_STATIC_DRAW);
 
-  EntityComponentSystem<Transform, ShaderBindings*, LineTag> ecs;
+  Ecs ecs;
 
   ShaderBindings player_shader_bindings(&ship_shader_program, quad_vbo);
   if (Error e =
@@ -304,18 +333,10 @@ Error run() {
       !e.ok) return e;
 
   // One should be roughly the width of the player ship.
-  ecs.write_new_entity(Transform{glm::vec2(1, 1), 3.14 / 2, 1},
-                       &line_shader_bindings, LineTag{});
-  ecs.write_new_entity(Transform{glm::vec2(1.5, 1), 3.14 / 1.5, 1.5},
-                       &line_shader_bindings, LineTag{});
-  ecs.write_new_entity(Transform{glm::vec2(1.5, 1), 3.14 / 1.0, 2},
-                       &line_shader_bindings, LineTag{});
-  ecs.write_new_entity(Transform{glm::vec2(1, 1.2), 3.14 / 2, 1},
-                       &line_shader_bindings, LineTag{});
-  ecs.write_new_entity(Transform{glm::vec2(1.5, 1.2), 3.14 / 1.5, 1.5},
-                       &line_shader_bindings, LineTag{});
-  ecs.write_new_entity(Transform{glm::vec2(1.5, 1.2), 3.14 / 1.0, 2},
-                       &line_shader_bindings, LineTag{});
+  TrackGenerator track_gen(glm::vec2(1, 0), &line_shader_bindings);
+  for (unsigned int i = 0; i < 1000; ++i) {
+    track_gen.write_track(ecs);
+  }
 
   // TODO: These should eventually be stored into components, too.
   ShipController ship_controller;
@@ -375,16 +396,15 @@ Error run() {
 
       ship_transform.rotation += ship_rotation_vel * TIME_STEP_MS;
       ship_speed += ship_acc * TIME_STEP_MS;
-      auto pos_change = glm::vec2(std::cos(ship_transform.rotation),
-                                  std::sin(ship_transform.rotation));
-      pos_change *= ship_speed * TIME_STEP_MS;
-
+      auto pos_change = sin_cos_vector(ship_transform.rotation, ship_speed * TIME_STEP_MS);
       ship_transform.pos = ship_transform.pos + pos_change;
       ship_rotation_vel = 0;
       ship_acc = 0;
 
       camera_offset = pos_change;
-      camera_offset *= 100 / TIME_STEP_MS;
+      // TODO: This isn't very intelligent. If the offset factor is too large,
+      // the player will be off screen and if too small, overly centered.
+      camera_offset *= 100.f / TIME_STEP_MS;
       camera_offset += ship_transform.pos;
 
       // TODO: Destroy lines we collide with. We do this inside each physics
@@ -393,7 +413,6 @@ Error run() {
       // TODO: Actual triangle-line collision.
       for (const auto& [id, line_transform, _] : ecs.read_all<Transform, LineTag>()) {
         if (glm::distance(line_transform.pos, ship_transform.pos) < 0.75) {
-          std::cout << "Marking id=" << id.id << " to delete." << std::endl;
           ecs.mark_to_delete(id);
         }
       }
