@@ -114,10 +114,13 @@ protected:
       return old;
     }
 
-
     Iterator(IteratorTuple its, IteratorTuple ends)
       : its(std::move(its)), ends(std::move(ends)) {
         max_id = std::get<0>(its)->id;
+        tuple_foreach(
+            [&](auto it) {
+              if (!at_end(it)) max_id = std::max(max_id, it->id);
+            }, its);
         catch_up();  // Ensure a valid initial starting position.
       }
 
