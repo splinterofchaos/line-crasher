@@ -19,6 +19,10 @@
 constexpr int WINDOW_HEIGHT = 800;
 constexpr int WINDOW_WIDTH = 800;
 
+// Target 60 FPS and do physics updates four times as often.
+constexpr auto TIME_STEP = std::chrono::milliseconds(1000) / (60 * 4);
+constexpr auto TIME_STEP_MS = TIME_STEP.count();
+
 // Represents the in-game understanding of user inputs.
 struct ShipController {
   bool thruster = false;
@@ -182,6 +186,14 @@ void draw_object(const Transform& transform,
   gl::drawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 }
 
+std::chrono::milliseconds time_diff(
+    std::chrono::high_resolution_clock::time_point old_time,
+    std::chrono::high_resolution_clock::time_point new_time) {
+  if (old_time > new_time) return time_diff(new_time, old_time);
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+      new_time - old_time);
+}
+
 Error run() {
   Graphics gfx;
   if (Error e = gfx.init(WINDOW_WIDTH, WINDOW_HEIGHT); !e.ok) return e;
@@ -304,6 +316,8 @@ Error run() {
   float ship_rotation_vel = 0;
 
   auto time = std::chrono::high_resolution_clock::now();
+  std::chrono::high_resolution_clock::time_point last_physics_update =
+    time - TIME_STEP;
   std::chrono::milliseconds dtime;
 
   bool keep_going = true;
@@ -330,30 +344,35 @@ Error run() {
     }
 
     auto new_time = std::chrono::high_resolution_clock::now();
-    dtime = std::chrono::duration_cast<std::chrono::milliseconds>(new_time - time);
+    dtime = time_diff(new_time, time);
     static auto highest_dtime = decltype(dtime.count())(0);
     if (dtime.count() > highest_dtime) {
       std::cout << "new highest ftime: " << dtime.count() << std::endl;
       highest_dtime = dtime.count();
     }
-    time = new_time;
 
-    if (ship_controller.thruster) ship_acc = 0.000001f;
-    if (ship_controller.rotate_clockwise) ship_rotation_vel -= 0.001f;
-    if (ship_controller.rotate_counterclockwise) ship_rotation_vel += 0.001f;
+    while (time_diff(last_physics_update, new_time) > TIME_STEP) {
+      last_physics_update += TIME_STEP;
 
-    Transform& ship_transform = ecs.read_or_panic<Transform>(player);
+      if (ship_controller.thruster) ship_acc = 0.000001f;
+      if (ship_controller.rotate_clockwise) ship_rotation_vel -= 0.001f;
+      if (ship_controller.rotate_counterclockwise) ship_rotation_vel += 0.001f;
 
-    ship_transform.rotation += ship_rotation_vel * dtime.count();
-    ship_speed += ship_acc * dtime.count();
-    auto pos_change = glm::vec2(std::cos(ship_transform.rotation),
-                                std::sin(ship_transform.rotation));
-    pos_change *= ship_speed * dtime.count();
+      // TODO: This is a nice implicit Euler integration, but consider RK4.
+      // ref: https://gafferongames.com/post/integration_basics/#:~:text=Euler%20integration%20is%20the%20most,is%20constant%20over%20the%20timestep.&text=However%2C%20we%20are%20also%20integrating,error%20in%20the%20integrated%20position.
+      Transform& ship_transform = ecs.read_or_panic<Transform>(player);
 
-    ship_transform.pos = ship_transform.pos + pos_change;
-    ship_rotation_vel = 0;
-    ship_acc = 0;
+      ship_transform.rotation += ship_rotation_vel * TIME_STEP_MS;
+      ship_speed += ship_acc * TIME_STEP_MS;
+      auto pos_change = glm::vec2(std::cos(ship_transform.rotation),
+                                  std::sin(ship_transform.rotation));
+      pos_change *= ship_speed * TIME_STEP_MS;
 
+      ship_transform.pos = ship_transform.pos + pos_change;
+      ship_rotation_vel = 0;
+      ship_acc = 0;
+
+    }
     // TODO: make less linear.
     float zoom = 0.25f; // - ship_speed * 50;
 
@@ -361,10 +380,11 @@ Error run() {
 
     for (const auto& [id, transform, shader_bindings] :
          ecs.read_all<Transform, ShaderBindings*>()) {
-      draw_object(transform, shader_bindings, zoom);
     }
 
     gfx.swap_buffers();
+
+    time = new_time;
   }
 
   return Error();
