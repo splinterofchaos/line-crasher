@@ -48,11 +48,11 @@ public:
 
   void add_shader(const Shader& s) { glAttachShader(id_, s.id()); }
 
-  GLint attribute_location(const char* const name) {
+  GLint attribute_location(const char* const name) const {
     return glGetAttribLocation(id_, name);
   }
 
-  GLint uniform_location(const char* const name) {
+  GLint uniform_location(const char* const name) const {
     return glGetUniformLocation(id_, name);
   }
 

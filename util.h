@@ -32,6 +32,11 @@ struct Error {
   Error(std::string reason) : ok(false), reason(std::move(reason)) { }
 };
 
+inline Error operator&&(const Error& e, const Error& e2) {
+  if (!e.ok) return e;
+  return e2;
+}
+
 template<typename...StrLike>
 std::string concat_strings(std::string s, const StrLike&...rest) {
   (s.append(rest), ...);

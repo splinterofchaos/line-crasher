@@ -33,8 +33,8 @@ struct ShipController {
 glm::mat4x4 transformation(glm::vec2 pos, float angle, float scale) {
   glm::mat4x4 transform = glm::translate(glm::mat4(1.f),
                                          glm::vec3(pos.x * scale, pos.y * scale, 0));
-  transform = glm::rotate(transform, angle, glm::vec3(0, 0, 1));
   transform *= glm::scale(glm::mat4(1.f), glm::vec3(scale));
+  transform = glm::rotate(transform, angle, glm::vec3(0, 0, 1));
   return transform;
 }
 
@@ -98,6 +98,50 @@ Error construct_line_shader(GlProgram& line_shader_program) {
   line_shader_program.add_shader(verts);
   line_shader_program.add_shader(frag);
   return line_shader_program.link();
+}
+
+struct Transform {
+  glm::vec2 pos;
+  float rotation;  // ... in radians.
+
+  // TODO: There might be a more appropriate component for this.
+  float length;  // Used for lines in determining how long they are.
+};
+
+// References all shader uniforms and attribute bindings.
+struct ShaderBindings {
+  GlProgram* program;
+
+  GLuint vbo;
+
+  GLint texture_uniform = -1;
+  GLint transform_uniform = -1;
+  GLint length_uniform = -1;
+
+  GLint vertex_pos_attrib = -1;
+  GLint tex_coord_attrib = -1;
+
+  ShaderBindings() { }
+  ShaderBindings(GlProgram* program, GLuint vbo)
+    : program(program), vbo(vbo) { }
+};
+
+Error set_uniform(const GlProgram& program, const char* const name,
+                  GLint& out) {
+  out = program.uniform_location(name);
+  if (out == -1) {
+    return Error(concat_strings(name, " is not a valid uniform location"));
+  }
+  return Error();
+}
+
+Error set_attribute(const GlProgram& program, const char* const name,
+                    GLint& out) {
+  out = program.attribute_location(name);
+  if (out == -1) {
+    return Error(concat_strings(name, " is not a valid attribute location"));
+  }
+  return Error();
 }
 
 Error run() {
@@ -178,41 +222,53 @@ Error run() {
   gl::bindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo_elems_id);
   gl::bufferData(GL_ELEMENT_ARRAY_BUFFER, vbo_elems, GL_STATIC_DRAW);
 
+  EntityComponentSystem<Transform, ShaderBindings*> ecs;
+
+  ShaderBindings player_shader_bindings(&ship_shader_program, quad_vbo);
+  if (Error e =
+      set_uniform(ship_shader_program, "tex",
+                  player_shader_bindings.texture_uniform) &&
+      set_uniform(ship_shader_program, "transform",
+                  player_shader_bindings.transform_uniform) &&
+      set_attribute(ship_shader_program, "vertex_pos",
+                    player_shader_bindings.vertex_pos_attrib) &&
+      set_attribute(ship_shader_program, "tex_coord",
+                    player_shader_bindings.tex_coord_attrib);
+      !e.ok) return e;
+
+  auto player = ecs.write_new_entity(Transform{glm::vec2(0.0f), 0, 0},
+                                     &player_shader_bindings);
+
+  ShaderBindings line_shader_bindings(&line_shader_program, line_vbo);
+  line_shader_program.use();
+  if (Error e =
+      set_uniform(line_shader_program, "transform",
+                  line_shader_bindings.transform_uniform) &&
+      set_uniform(line_shader_program, "length",
+                  line_shader_bindings.length_uniform) &&
+      set_attribute(line_shader_program, "vertex_pos",
+                    line_shader_bindings.vertex_pos_attrib);
+      !e.ok) return e;
+
+  // One should be roughly the width of the player ship.
+  ecs.write_new_entity(Transform{glm::vec2(1, 1), 3.14 / 2, 1},
+                       &line_shader_bindings);
+  ecs.write_new_entity(Transform{glm::vec2(1.5, 1), 3.14 / 1.5, 1.5},
+                       &line_shader_bindings);
+  ecs.write_new_entity(Transform{glm::vec2(1.5, 1), 3.14 / 1.0, 2},
+                       &line_shader_bindings);
+
+  // TODO: These should eventually be stored into components, too.
   ShipController ship_controller;
   float ship_speed = 0;
   float ship_acc = 0;
-  float ship_rotation = 0;
   float ship_rotation_vel = 0;
-  auto ship_pos = glm::vec2(0.0f, 0.0f);
 
   auto time = std::chrono::high_resolution_clock::now();
   std::chrono::milliseconds dtime;
 
   bool keep_going = true;
   SDL_Event e;
-
-  // TODO: such an ugly block. I'm sure we can do better.
-  auto ship_texture_attr = ship_shader_program.uniform_location("tex");
-  if (ship_texture_attr == -1) return Error("tex is not a valid uniform location.");
-  auto ship_transform_attr = ship_shader_program.uniform_location("transform");
-  if (ship_transform_attr == -1) return Error("linear_transformation not valid.");
-  auto ship_vertex_pos_attr = ship_shader_program.attribute_location("vertex_pos");
-  if (ship_vertex_pos_attr == -1) return Error("vertex_pos is not a valid var.");
-  auto ship_tex_coord_attr = ship_shader_program.attribute_location("tex_coord");
-  if (ship_tex_coord_attr == -1) return Error("tex_coord is not a valid var.");
-
-  line_shader_program.use();
-  auto line_vertex_attr = line_shader_program.attribute_location("vertex_pos");
-  if (line_vertex_attr == -1) return Error("Invalid uniform: vertex_pos");
-  auto line_transform_attr = line_shader_program.uniform_location("transform");
-  if (line_transform_attr == -1) return Error("Invalid uniform: transform");
-  auto line_length_attr = line_shader_program.uniform_location("length");
-  if (line_length_attr == -1) return Error("Invalid uniform: length");
-
-  glm::vec2 line_pos(1, 1);
-  // One should be roughly the width of the player ship.
-  float line_length = 1;
-  float line_angle = 0;
 
   while (keep_going) {
     while (SDL_PollEvent(&e) != 0) {
@@ -242,18 +298,16 @@ Error run() {
     if (ship_controller.rotate_clockwise) ship_rotation_vel += 0.001f;
     if (ship_controller.rotate_counterclockwise) ship_rotation_vel -= 0.001f;
 
-    ship_rotation += ship_rotation_vel * dtime.count();
+    Transform& ship_transform = ecs.read_or_panic<Transform>(player);
+
+    ship_transform.rotation += ship_rotation_vel * dtime.count();
     ship_speed += ship_acc * dtime.count();
-    auto pos_change = glm::vec2(std::cos(ship_rotation),
-                                std::sin(ship_rotation)); 
+    auto pos_change = glm::vec2(std::cos(ship_transform.rotation),
+                                std::sin(ship_transform.rotation)); 
     pos_change *= ship_speed * dtime.count();
-    ship_pos = ship_pos + pos_change;
+
+    ship_transform.pos = ship_transform.pos + pos_change;
     ship_rotation_vel = 0;
-
-    // Just to test drawing lines at different widths.
-    line_length += ship_acc * dtime.count();
-
-    // TODO: move this back UP
     ship_acc = 0;
 
     // TODO: make less linear.
@@ -261,41 +315,30 @@ Error run() {
 
     gl::clear();
 
-    // Draw the ship.
-    {
-      ship_shader_program.use();
+    for (const auto& [id, transform, shader_bindings] :
+         ecs.read_all<Transform, ShaderBindings*>()) {
+      shader_bindings->program->use();
 
-      gl::bindBuffer(GL_ARRAY_BUFFER, quad_vbo);
-      gl::uniform(ship_texture_attr, ship_texture);
+      gl::bindBuffer(GL_ARRAY_BUFFER, shader_bindings->vbo);
 
       glUniformMatrix4fv(
-          ship_transform_attr, 1, GL_FALSE,
-          glm::value_ptr(transformation(ship_pos, ship_rotation, zoom)));
+          shader_bindings->transform_uniform, 1, GL_FALSE,
+          glm::value_ptr(transformation(transform.pos, transform.rotation,
+                                        zoom)));
 
-      gl::enableVertexAttribArray(ship_vertex_pos_attr);
-      gl::vertexAttribPointer<float>(ship_vertex_pos_attr, 2, GL_FALSE,
-                                     &Vertex::pos);
+      gl::enableVertexAttribArray(shader_bindings->vertex_pos_attrib);
+      gl::vertexAttribPointer<float>(shader_bindings->vertex_pos_attrib, 2,
+                                     GL_FALSE, &Vertex::pos);
 
-      gl::enableVertexAttribArray(ship_tex_coord_attr);
-      gl::vertexAttribPointer<float>(ship_tex_coord_attr, 2, GL_FALSE,
-                                     &Vertex::tex_coord);
+      if (shader_bindings->tex_coord_attrib != -1) {
+        gl::enableVertexAttribArray(shader_bindings->tex_coord_attrib);
+        gl::vertexAttribPointer<float>(shader_bindings->tex_coord_attrib, 2,
+                                       GL_FALSE, &Vertex::tex_coord);
+      }
 
-      gl::drawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-
-    }
-    {
-      line_shader_program.use();
-
-      gl::uniform(line_length_attr, 2.f);
-
-      gl::bindBuffer(GL_ARRAY_BUFFER, line_vbo);
-      glUniformMatrix4fv(
-          line_transform_attr, 1, GL_FALSE,
-          glm::value_ptr(transformation(line_pos, line_angle, zoom)));
-
-      gl::enableVertexAttribArray(line_vertex_attr);
-      gl::vertexAttribPointer<float>(line_vertex_attr, 2, GL_FALSE,
-                                     &Vertex::pos);
+      if (shader_bindings->length_uniform != -1) {
+        gl::uniform(shader_bindings->length_uniform, transform.length);
+      }
 
       gl::drawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
     }
