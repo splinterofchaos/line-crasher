@@ -226,9 +226,12 @@ public:
 };
 
 void TrackGenerator::write_track(Ecs& ecs) {
-  ecs.write_new_entity(Transform{start_, heading_ + glm::half_pi<float>(), 1},
-                       shader_bindings_, LineTag{});
-  start_ += sin_cos_vector(heading_);
+  for (unsigned int i = 0; i < 10; ++i) {
+    ecs.write_new_entity(
+        Transform{start_, heading_ + glm::half_pi<float>(), 1},
+        shader_bindings_, LineTag{});
+    start_ += sin_cos_vector(heading_);
+  }
 }
 
 Error run() {
@@ -334,9 +337,7 @@ Error run() {
 
   // One should be roughly the width of the player ship.
   TrackGenerator track_gen(glm::vec2(1, 0), &line_shader_bindings);
-  for (unsigned int i = 0; i < 1000; ++i) {
-    track_gen.write_track(ecs);
-  }
+  track_gen.write_track(ecs);
 
   // TODO: These should eventually be stored into components, too.
   ShipController ship_controller;
@@ -353,6 +354,8 @@ Error run() {
   SDL_Event e;
 
   glm::vec2 camera_offset(0.f);
+  // TODO: make less linear.
+  float zoom = 0.25f; // - ship_speed * 50;
 
   while (keep_going) {
     while (SDL_PollEvent(&e) != 0) {
@@ -382,11 +385,11 @@ Error run() {
       highest_dtime = dtime.count();
     }
 
-    // Update the player's ship.
+    // Perform physics updates.
     while (time_diff(last_physics_update, new_time) > TIME_STEP) {
       last_physics_update += TIME_STEP;
 
-      if (ship_controller.thruster) ship_acc = 0.000001f;
+      if (ship_controller.thruster) ship_acc = 0.00001f;
       if (ship_controller.rotate_clockwise) ship_rotation_vel -= 0.001f;
       if (ship_controller.rotate_counterclockwise) ship_rotation_vel += 0.001f;
 
@@ -404,8 +407,11 @@ Error run() {
       camera_offset = pos_change;
       // TODO: This isn't very intelligent. If the offset factor is too large,
       // the player will be off screen and if too small, overly centered.
-      camera_offset *= 100.f / TIME_STEP_MS;
+      camera_offset *= 500.f / TIME_STEP_MS;
       camera_offset += ship_transform.pos;
+
+      zoom = 0.25f;
+      if (ship_speed > 0.001) zoom -= std::log(ship_speed * 1000) * 0.06;
 
       // TODO: Destroy lines we collide with. We do this inside each physics
       // update to minimize the chance we go past a line entirely in one
@@ -416,12 +422,13 @@ Error run() {
           ecs.mark_to_delete(id);
         }
       }
+
+      if (glm::distance(track_gen.start(), camera_offset) < 2.f / zoom) {
+        track_gen.write_track(ecs);
+      }
     }
 
     ecs.deleted_marked_ids();
-
-    // TODO: make less linear.
-    float zoom = 0.25f; // - ship_speed * 50;
 
     gl::clear();
 
