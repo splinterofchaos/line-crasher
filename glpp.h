@@ -193,6 +193,10 @@ inline void enableVertexAttribArray(GLuint index) {
   glEnableVertexAttribArray(index);
 }
 
+inline void disableVertexAttribArray(GLuint index) {
+  glDisableVertexAttribArray(index);
+}
+
 inline void vertexAttribPointer(GLuint index, GLint size, GLenum type,
                                 GLboolean normalized, GLsizei stride,
                                 const void* pointer) {

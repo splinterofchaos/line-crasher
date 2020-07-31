@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <iostream>
 
+#include "ecs.h"
 #include "glpp.h"
 #include "graphics.h"
 
@@ -31,53 +32,83 @@ struct ShipController {
 
 glm::mat4x4 transformation(glm::vec2 pos, float angle, float scale) {
   glm::mat4x4 transform = glm::translate(glm::mat4(1.f),
-                                         glm::vec3(pos.x, pos.y, 0));
+                                         glm::vec3(pos.x * scale, pos.y * scale, 0));
   transform = glm::rotate(transform, angle, glm::vec3(0, 0, 1));
   transform *= glm::scale(glm::mat4(1.f), glm::vec3(scale));
   return transform;
+}
+
+Error construct_ship_shader(GlProgram& ship_shader_program)
+{
+  Shader verts(Shader::Type::VERTEX);
+  verts.add_source(R"(
+		#version 140
+    in vec2 vertex_pos;
+    in vec2 tex_coord;
+    uniform mat4 transform;
+    out vec2 TexCoord;
+    void main() {
+      gl_Position = transform * vec4(vertex_pos, 1, 1);
+      TexCoord = tex_coord;
+    }
+  )");
+  if (Error e = verts.compile(); !e.ok) return e;
+
+  Shader frag(Shader::Type::FRAGMENT);
+  frag.add_source(R"(
+    #version 140
+    in vec2 TexCoord;
+    out vec4 FragColor;
+    uniform sampler2D tex;
+    void main() {
+      FragColor = texture(tex, TexCoord);
+    }
+  )");
+  if (Error e = frag.compile(); !e.ok) return e;
+
+  ship_shader_program.add_shader(verts);
+  ship_shader_program.add_shader(frag);
+  return ship_shader_program.link();
+}
+
+Error construct_line_shader(GlProgram& line_shader_program) {
+  Shader verts(Shader::Type::VERTEX);
+  verts.add_source(R"(
+		#version 140
+    in vec2 vertex_pos;
+    uniform mat4 transform;
+    uniform float length;
+    void main() {
+      gl_Position = transform * vec4(vertex_pos.x * length, vertex_pos.y, 1, 1);
+    }
+  )");
+  if (Error e = verts.compile(); !e.ok) return e;
+
+  Shader frag(Shader::Type::FRAGMENT);
+  frag.add_source(R"(
+    #version 140
+    in vec2 TexCoord;
+    out vec4 FragColor;
+    void main() {
+      FragColor = vec4(1);
+    }
+  )");
+  if (Error e = frag.compile(); !e.ok) return e;
+
+  line_shader_program.add_shader(verts);
+  line_shader_program.add_shader(frag);
+  return line_shader_program.link();
 }
 
 Error run() {
   Graphics gfx;
   if (Error e = gfx.init(WINDOW_WIDTH, WINDOW_HEIGHT); !e.ok) return e;
 
-  Shader verts(Shader::Type::VERTEX);
-  verts.add_source(
-		"#version 140\n"
-    "in vec2 vertex_pos;"
-    "in vec2 tex_coord;"
-    "uniform mat4 transform;"
-    "out vec2 TexCoord;"
-    "void main() {"
-      "gl_Position = transform * vec4(vertex_pos, 1, 1);"
-      "TexCoord = tex_coord;"
-    "}"
-  );
+  GlProgram ship_shader_program;
+  if (Error e = construct_ship_shader(ship_shader_program); !e.ok) return e;
 
-  if (Error e = verts.compile(); !e.ok) return e;
-
-  Shader frag(Shader::Type::FRAGMENT);
-  frag.add_source(
-    "#version 140\n"
-    "in vec2 TexCoord;"
-    "out vec4 FragColor;"
-    "uniform sampler2D tex;"
-    "void main() {"
-      "FragColor = texture(tex, TexCoord);"
-    "}"
-  );
-
-  if (Error e = frag.compile(); !e.ok) return e;
-
-  GlProgram gl_program;
-  gl_program.add_shader(verts);
-  gl_program.add_shader(frag);
-  if (Error e = gl_program.link(); !e.ok) return e;
-
-  auto gl_vertext_pos = gl_program.attribute_location("vertex_pos");
-  if (gl_vertext_pos == -1) return Error("vertex_pos is not a valid var.");
-  auto gl_tex_coord = gl_program.attribute_location("tex_coord");
-  if (gl_tex_coord == -1) return Error("tex_coord is not a valid var.");
+  GlProgram line_shader_program;
+  if (Error e = construct_line_shader(line_shader_program); !e.ok) return e;
 
   //Initialize clear color
   gl::clearColor(0.f, 0.f, 0.f, 1.f);
@@ -105,9 +136,6 @@ Error run() {
   gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
   gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
 
-  //GLuint vao;
-  //glGenVertexArrays(1, &vao);
-  //glBindVertexArray(vao);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glEnable(GL_BLEND);
 
@@ -117,7 +145,7 @@ Error run() {
   };
 
   //VBO data
-  Vertex vertecies[] = {
+  Vertex quad_vertecies[] = {
     // Position    TexCoords
     {{-0.5f, -0.5f},  {0.0f, 1.0f}},
     {{ 0.5f, -0.5f},  {1.0f, 1.0f}},
@@ -125,9 +153,22 @@ Error run() {
     {{-0.5f,  0.5f},  {0.0f, 0.0f}}
   };
 
-  GLuint vbo = gl::genBuffer();
-  gl::bindBuffer(GL_ARRAY_BUFFER, vbo);
-  gl::bufferData(GL_ARRAY_BUFFER, vertecies, GL_DYNAMIC_DRAW);
+  GLuint quad_vbo = gl::genBuffer();
+  gl::bindBuffer(GL_ARRAY_BUFFER, quad_vbo);
+  gl::bufferData(GL_ARRAY_BUFFER, quad_vertecies, GL_DYNAMIC_DRAW);
+
+  Vertex line_vertecies[] = {
+    // Position    TexCoords
+    {{-0.5f, -0.05f},  {0.0f, 0.0f}},
+    {{ 0.5f, -0.05f},  {0.0f, 0.0f}},
+    {{ 0.5f,  0.05f},  {0.0f, 0.0f}},
+    {{-0.5f,  0.05f},  {0.0f, 0.0f}}
+  };
+
+  GLuint line_vbo = gl::genBuffer();
+  gl::bindBuffer(GL_ARRAY_BUFFER, line_vbo);
+  gl::bufferData(GL_ARRAY_BUFFER, line_vertecies, GL_DYNAMIC_DRAW);
+  bool flip = false;
 
   //IBO data
   GLuint vbo_elems[] = {0, 1, 2,
@@ -150,11 +191,28 @@ Error run() {
   bool keep_going = true;
   SDL_Event e;
 
-  auto ship_texture_uni = gl_program.uniform_location("tex");
-  if (ship_texture_uni == -1) return Error("tex is not a valid uniform location.");
+  // TODO: such an ugly block. I'm sure we can do better.
+  auto ship_texture_attr = ship_shader_program.uniform_location("tex");
+  if (ship_texture_attr == -1) return Error("tex is not a valid uniform location.");
+  auto ship_transform_attr = ship_shader_program.uniform_location("transform");
+  if (ship_transform_attr == -1) return Error("linear_transformation not valid.");
+  auto ship_vertex_pos_attr = ship_shader_program.attribute_location("vertex_pos");
+  if (ship_vertex_pos_attr == -1) return Error("vertex_pos is not a valid var.");
+  auto ship_tex_coord_attr = ship_shader_program.attribute_location("tex_coord");
+  if (ship_tex_coord_attr == -1) return Error("tex_coord is not a valid var.");
 
-  auto ship_transform_uni = gl_program.uniform_location("transform");
-  if (ship_transform_uni == -1) return Error("linear_transformation not valid.");
+  line_shader_program.use();
+  auto line_vertex_attr = line_shader_program.attribute_location("vertex_pos");
+  if (line_vertex_attr == -1) return Error("Invalid uniform: vertex_pos");
+  auto line_transform_attr = line_shader_program.uniform_location("transform");
+  if (line_transform_attr == -1) return Error("Invalid uniform: transform");
+  auto line_length_attr = line_shader_program.uniform_location("length");
+  if (line_length_attr == -1) return Error("Invalid uniform: length");
+
+  glm::vec2 line_pos(1, 1);
+  // One should be roughly the width of the player ship.
+  float line_length = 1;
+  float line_angle = 0;
 
   while (keep_going) {
     while (SDL_PollEvent(&e) != 0) {
@@ -169,6 +227,7 @@ Error run() {
             case SDLK_RIGHT:
               control = &ship_controller.rotate_clockwise; break;
             case 'q': keep_going = false; break;
+            case ' ': flip = !flip; break;
           }
 
           if (control) *control = e.key.type == SDL_KEYDOWN;
@@ -190,26 +249,56 @@ Error run() {
     pos_change *= ship_speed * dtime.count();
     ship_pos = ship_pos + pos_change;
     ship_rotation_vel = 0;
+
+    // Just to test drawing lines at different widths.
+    line_length += ship_acc * dtime.count();
+
+    // TODO: move this back UP
     ship_acc = 0;
+
+    // TODO: make less linear.
+    float zoom = 0.25f; // - ship_speed * 50;
 
     gl::clear();
 
-    gl_program.use();
+    // Draw the ship.
+    {
+      ship_shader_program.use();
 
-    gl::uniform(ship_texture_uni, ship_texture);
+      gl::bindBuffer(GL_ARRAY_BUFFER, quad_vbo);
+      gl::uniform(ship_texture_attr, ship_texture);
 
-    glm::mat4x4 transform = transformation(ship_pos, ship_rotation, 0.5f);
-    glUniformMatrix4fv(ship_transform_uni, 1, GL_FALSE, glm::value_ptr(transform));
+      glUniformMatrix4fv(
+          ship_transform_attr, 1, GL_FALSE,
+          glm::value_ptr(transformation(ship_pos, ship_rotation, zoom)));
 
-    gl::enableVertexAttribArray(gl_vertext_pos);
-    gl::vertexAttribPointer<float>(gl_vertext_pos, 2, GL_FALSE, &Vertex::pos);
+      gl::enableVertexAttribArray(ship_vertex_pos_attr);
+      gl::vertexAttribPointer<float>(ship_vertex_pos_attr, 2, GL_FALSE,
+                                     &Vertex::pos);
 
-    gl::enableVertexAttribArray(gl_tex_coord);
-    gl::vertexAttribPointer<float>(gl_tex_coord, 2, GL_FALSE, &Vertex::tex_coord);
+      gl::enableVertexAttribArray(ship_tex_coord_attr);
+      gl::vertexAttribPointer<float>(ship_tex_coord_attr, 2, GL_FALSE,
+                                     &Vertex::tex_coord);
 
-    gl::drawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+      gl::drawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
-    gl::useProgram(0);
+    }
+    {
+      line_shader_program.use();
+
+      gl::uniform(line_length_attr, 2.f);
+
+      gl::bindBuffer(GL_ARRAY_BUFFER, line_vbo);
+      glUniformMatrix4fv(
+          line_transform_attr, 1, GL_FALSE,
+          glm::value_ptr(transformation(line_pos, line_angle, zoom)));
+
+      gl::enableVertexAttribArray(line_vertex_attr);
+      gl::vertexAttribPointer<float>(line_vertex_attr, 2, GL_FALSE,
+                                     &Vertex::pos);
+
+      gl::drawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+    }
 
     gfx.swap_buffers();
   }

@@ -37,7 +37,12 @@ class GlProgram {
 
 public:
   GlProgram() { id_ = glCreateProgram(); }
-  ~GlProgram() { glDeleteProgram(id_); }
+  GlProgram(GlProgram&& other) {
+    id_ = other.id_;
+    other.id_ = 0;
+  }
+
+  ~GlProgram() { if (id_) glDeleteProgram(id_); }
 
   GLuint id() const { return id_; }
 
