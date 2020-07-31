@@ -116,7 +116,7 @@ protected:
 
     Iterator(IteratorTuple its, IteratorTuple ends)
       : its(std::move(its)), ends(std::move(ends)) {
-        max_id = std::get<0>(its)->id;
+        max_id = EntityId{0};
         tuple_foreach(
             [&](auto it) {
               if (!at_end(it)) max_id = std::max(max_id, it->id);
