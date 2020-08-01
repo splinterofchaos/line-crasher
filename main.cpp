@@ -46,6 +46,7 @@ bool random_bool(std::mt19937& gen) {
 // Represents the in-game understanding of user inputs.
 struct ShipController {
   bool thruster = false;
+  bool breaks = false;
   bool rotate_clockwise = false;
   bool rotate_counterclockwise = false;
 
@@ -419,6 +420,7 @@ Error run() {
           bool* control = nullptr;
           switch (e.key.keysym.sym) {
             case SDLK_UP: control = &ship_controller.thruster; break;
+            case SDLK_DOWN: control = &ship_controller.breaks; break;
             case SDLK_LEFT:
               control = &ship_controller.rotate_counterclockwise; break;
             case SDLK_RIGHT:
@@ -443,7 +445,9 @@ Error run() {
     while (time_diff(last_physics_update, new_time) > TIME_STEP) {
       last_physics_update += TIME_STEP;
 
-      if (ship_controller.thruster) ship_acc = 0.00001f;
+      ship_acc = 0;
+      if (ship_controller.thruster) ship_acc += 0.00001f;
+      if (ship_controller.breaks) ship_acc -= 0.00001f;
       if (ship_controller.rotate_clockwise) ship_rotation_vel -= 0.001f;
       if (ship_controller.rotate_counterclockwise) ship_rotation_vel += 0.001f;
 
@@ -457,7 +461,6 @@ Error run() {
                                    ship_speed * TIME_STEP_MS);
       ship_transform.pos = ship_transform.pos + pos_change;
       ship_rotation_vel = 0;
-      ship_acc = 0;
 
       camera_offset = pos_change;
       // TODO: This isn't very intelligent. If the offset factor is too large,
