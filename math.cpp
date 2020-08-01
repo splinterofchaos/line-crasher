@@ -27,6 +27,20 @@ bool barycentric_point_in_triangle(glm::vec3 point, glm::vec3 v0, glm::vec3 v1,
   return a > 0 && b > 0 && a + b < 1;
 }
 
+float cross2(const glm::vec3& a, const glm::vec3& b) {
+  return a.x * b.y - a.y * b.x;
+}
+
+bool segment_segment_intersection(glm::vec3 p1, glm::vec3 p2,
+                                  glm::vec3 q1, glm::vec3 q2) {
+  glm::vec3 r = p2 - p1;
+  glm::vec3 s = q2 - q1;
+  if (cross2(r, s) == 0) return false;
+  float t = cross2(q1 - p1, s) / cross2(r, s);
+  float u = cross2(p1 - q1, r) / cross2(s, r);
+  return 0 < t && t < 1 && 0 < u && u < 1;
+}
+
 glm::vec3 radial_vec(float radians, float length) {
   return glm::vec3(std::cos(radians) * length, std::sin(radians) * length, 0);
 }

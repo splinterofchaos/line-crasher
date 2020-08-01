@@ -5,6 +5,7 @@
 
 glm::mat4x4 transformation(glm::vec3 pos, float angle, float scale);
 
+// TODO: unused. Consider deleting.
 bool barycentric_point_in_triangle(glm::vec3 point, glm::vec3 v0, glm::vec3 v1,
                                    glm::vec3 v2);
 
@@ -30,3 +31,6 @@ template<typename T>
 inline auto plus_minus(T init, T operand) {
   return std::tuple(init + operand, init - operand);
 }
+
+bool segment_segment_intersection(glm::vec3 p1, glm::vec3 p2,
+                                  glm::vec3 q1, glm::vec3 q2);

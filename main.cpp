@@ -29,6 +29,10 @@ constexpr auto TIME_STEP_MS = TIME_STEP.count();
 std::random_device rd;
 std::mt19937 random_gen;
 
+std::ostream& operator<<(std::ostream& os, const glm::vec3 v) {
+  return os << '<' << v.x << ", " << v.y << ", " << v.z << '>';
+}
+
 int random_int(std::mt19937& gen, int min, int max) {
   auto distribution = std::uniform_int_distribution(min, max - 1);
   return distribution(gen);
@@ -236,7 +240,7 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
         ecs.write_new_entity(
             Transform{start_, heading_ + glm::half_pi<float>(), 3},
             shader_bindings_, LineTag{});
-        start_ += radial_vec3(heading_, SPACING);
+        start_ += radial_vec(heading_, SPACING);
       }
       break;
     case TrackGenerator::CIRCULAR_CURVE: {
@@ -259,7 +263,7 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
         //    arc length = r * theta.
         //    arc length / r = theta.
         heading_ += (SPACING / radius) * dir;
-        start_ = center + radial_vec3(
+        start_ = center + radial_vec(
             heading_ - glm::half_pi<float>() * dir, radius);
       }
       heading_ = new_heading;
@@ -440,8 +444,8 @@ Error run() {
 
       ship_transform.rotation += ship_rotation_vel * TIME_STEP_MS;
       ship_speed += ship_acc * TIME_STEP_MS;
-      auto pos_change = radial_vec3(ship_transform.rotation,
-                                    ship_speed * TIME_STEP_MS);
+      auto pos_change = radial_vec(ship_transform.rotation,
+                                   ship_speed * TIME_STEP_MS);
       ship_transform.pos = ship_transform.pos + pos_change;
       ship_rotation_vel = 0;
 
@@ -466,17 +470,16 @@ Error run() {
         // Bounds check first.
         if (glm::distance(line_transform.pos, ship_transform.pos) <
             line_transform.length + SHIP_HALF_LENGTH) {
+          // Check if the line segment, [a, b], intersects either side of the
+          // ship. Since it can't go backwards, we don't need to check the
+          // back side.
           glm::vec3 parallel = radial_vec(line_transform.rotation,
                                           line_transform.length / 2);
-          auto ends = plus_minus(line_transform.pos, parallel);
-          for (const glm::vec3& point : {nose, left_back, right_back}) {
-            glm::vec3 closest_point = glm::closestPointOnLine(
-                point, std::get<0>(ends), std::get<1>(ends));
-            if (barycentric_point_in_triangle(closest_point, nose, left_back,
-                                              right_back)) {
-              ecs.mark_to_delete(id);
-              break;
-            }
+          auto [a, b] = plus_minus(line_transform.pos, parallel);
+          if (segment_segment_intersection(left_back, nose, a, b) ||
+              segment_segment_intersection(right_back, nose, a, b)) {
+            ecs.mark_to_delete(id);
+            break;
           }
         }
       }
