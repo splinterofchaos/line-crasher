@@ -56,6 +56,9 @@ public:
     return glGetUniformLocation(id_, name);
   }
 
+  Error attribute_location(const char* const name, GLint& out) const;
+  Error uniform_location(const char* const name, GLint& out) const;
+
   Error link();
 
   // Ask GL to use this program.

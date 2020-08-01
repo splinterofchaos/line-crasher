@@ -151,24 +151,6 @@ struct Vertex {
   glm::vec2 tex_coord;
 };
 
-Error set_uniform(const GlProgram& program, const char* const name,
-                  GLint& out) {
-  out = program.uniform_location(name);
-  if (out == -1) {
-    return Error(concat_strings(name, " is not a valid uniform location"));
-  }
-  return Error();
-}
-
-Error set_attribute(const GlProgram& program, const char* const name,
-                    GLint& out) {
-  out = program.attribute_location(name);
-  if (out == -1) {
-    return Error(concat_strings(name, " is not a valid attribute location"));
-  }
-  return Error();
-}
-
 void draw_object(const Transform& transform,
                  const ShaderBindings* shader_bindings,
                  glm::vec2 camera_offset,
@@ -366,14 +348,14 @@ Error run() {
 
   ShaderBindings player_shader_bindings(&ship_shader_program, quad_vbo);
   if (Error e =
-      set_uniform(ship_shader_program, "tex",
-                  player_shader_bindings.texture_uniform) &&
-      set_uniform(ship_shader_program, "transform",
-                  player_shader_bindings.transform_uniform) &&
-      set_attribute(ship_shader_program, "vertex_pos",
-                    player_shader_bindings.vertex_pos_attrib) &&
-      set_attribute(ship_shader_program, "tex_coord",
-                    player_shader_bindings.tex_coord_attrib);
+      ship_shader_program.uniform_location(
+          "tex", player_shader_bindings.texture_uniform) &&
+      ship_shader_program.uniform_location(
+          "transform", player_shader_bindings.transform_uniform) &&
+      ship_shader_program.attribute_location(
+          "vertex_pos", player_shader_bindings.vertex_pos_attrib) &&
+      ship_shader_program.attribute_location(
+          "tex_coord", player_shader_bindings.tex_coord_attrib);
       !e.ok) return e;
 
   auto player = ecs.write_new_entity(Transform{glm::vec2(0.0f), 0, 0},
@@ -382,12 +364,12 @@ Error run() {
   ShaderBindings line_shader_bindings(&line_shader_program, line_vbo);
   line_shader_program.use();
   if (Error e =
-      set_uniform(line_shader_program, "transform",
-                  line_shader_bindings.transform_uniform) &&
-      set_uniform(line_shader_program, "length",
-                  line_shader_bindings.length_uniform) &&
-      set_attribute(line_shader_program, "vertex_pos",
-                    line_shader_bindings.vertex_pos_attrib);
+      line_shader_program.uniform_location(
+          "transform", line_shader_bindings.transform_uniform) &&
+      line_shader_program.uniform_location(
+          "length", line_shader_bindings.length_uniform) &&
+      line_shader_program.attribute_location(
+          "vertex_pos", line_shader_bindings.vertex_pos_attrib);
       !e.ok) return e;
 
   // One should be roughly the width of the player ship.

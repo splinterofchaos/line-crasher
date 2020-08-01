@@ -69,6 +69,26 @@ std::string GlProgram::log() const {
   return log;
 }
 
+Error GlProgram::attribute_location(const char* const name, GLint& out) const {
+  out = attribute_location(name);
+  if (out == -1) {
+    return Error(concat_strings(
+            name, " is not a valid attribute location (program id: ",
+            std::to_string(id_)));
+  }
+  return Error();
+}
+
+Error GlProgram::uniform_location(const char* const name, GLint& out) const {
+  out = uniform_location(name);
+  if (out == -1) {
+    return Error(concat_strings(
+            name, " is not a valid uniform location (program id: ",
+            std::to_string(id_)));
+  }
+  return Error();
+}
+
 Error GlProgram::link() {
   glLinkProgram(id_);
 
