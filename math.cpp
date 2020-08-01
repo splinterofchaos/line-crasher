@@ -2,9 +2,8 @@
 
 #include <glm/gtx/transform.hpp>
 
-glm::mat4x4 transformation(glm::vec2 pos, float angle, float scale) {
-  glm::mat4x4 transform = glm::translate(glm::mat4(1.f),
-                                         glm::vec3(pos.x * scale, pos.y * scale, 0));
+glm::mat4x4 transformation(glm::vec3 pos, float angle, float scale) {
+  glm::mat4x4 transform = glm::translate(glm::mat4(1.f), pos * scale);
   transform *= glm::scale(glm::mat4(1.f), glm::vec3(scale));
   transform = glm::rotate(transform, angle, glm::vec3(0, 0, 1));
   return transform;
@@ -28,6 +27,6 @@ bool barycentric_point_in_triangle(glm::vec3 point, glm::vec3 v0, glm::vec3 v1,
   return a > 0 && b > 0 && a + b < 1;
 }
 
-glm::vec2 radial_vec(float radians, float length) {
-  return glm::vec2(std::cos(radians) * length, std::sin(radians) * length);
+glm::vec3 radial_vec(float radians, float length) {
+  return glm::vec3(std::cos(radians) * length, std::sin(radians) * length, 0);
 }
