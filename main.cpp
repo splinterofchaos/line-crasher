@@ -6,7 +6,6 @@
 #include <glm/mat4x4.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/closest_point.hpp>
-#include <glm/gtx/transform.hpp>
 
 #include <chrono>
 #include <cmath>
@@ -17,6 +16,7 @@
 #include "ecs.h"
 #include "glpp.h"
 #include "graphics.h"
+#include "math.h"
 
 constexpr int WINDOW_HEIGHT = 800;
 constexpr int WINDOW_WIDTH = 800;
@@ -56,30 +56,6 @@ struct ShipController {
 
 constexpr float SHIP_HALF_LENGTH = 0.5f;
 constexpr float SHIP_HALF_WIDTH = 0.5f;
-
-glm::mat4x4 transformation(glm::vec2 pos, float angle, float scale) {
-  glm::mat4x4 transform = glm::translate(glm::mat4(1.f),
-                                         glm::vec3(pos.x * scale, pos.y * scale, 0));
-  transform *= glm::scale(glm::mat4(1.f), glm::vec3(scale));
-  transform = glm::rotate(transform, angle, glm::vec3(0, 0, 1));
-  return transform;
-}
-
-bool barycentric_point_in_triangle(glm::vec3 point, glm::vec3 v0, glm::vec3 v1,
-                                   glm::vec3 v2) {
-  auto t0 = v1 - v0;
-  auto t1 = v2 - v0;
-  auto t2 = point - v0;
-  auto d00 = glm::dot(t0, t0);
-  auto d01 = glm::dot(t0, t1);
-  auto d11 = glm::dot(t1, t1);
-  auto d20 = glm::dot(t2, t0);
-  auto d21 = glm::dot(t2, t1);
-  auto denom = glm::dot(d00, d11) - glm::dot(d01, d01);
-  auto a = (glm::dot(d11, d20) - glm::dot(d01, d21)) / denom;
-  auto b = (glm::dot(d00, d21) - glm::dot(d01, d20)) / denom;
-  return a > 0 && b > 0 && a + b < 1;
-}
 
 Error construct_ship_shader(GlProgram& ship_shader_program)
 {
@@ -241,14 +217,6 @@ std::chrono::milliseconds time_diff(
 // player or UI element.
 struct LineTag { };
 
-glm::vec2 sin_cos_vector(float radians, float length = 1) {
-  return glm::vec2(std::cos(radians) * length, std::sin(radians) * length);
-}
-
-glm::vec3 to_vec3(const glm::vec2& v) {
-  return glm::vec3(v.x, v.y, 0);
-}
-
 using Ecs = EntityComponentSystem<Transform, ShaderBindings*, LineTag>;
 
 class TrackGenerator {
@@ -284,7 +252,7 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
         ecs.write_new_entity(
             Transform{start_, heading_ + glm::half_pi<float>(), 3},
             shader_bindings_, LineTag{});
-        start_ += sin_cos_vector(heading_, SPACING);
+        start_ += radial_vec(heading_, SPACING);
       }
       break;
     case TrackGenerator::CIRCULAR_CURVE: {
@@ -296,7 +264,7 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
 
       float new_heading = heading_ + angle * dir;
       glm::vec2 center = start_ +
-        sin_cos_vector(heading_ + glm::half_pi<float>() * dir, radius);
+        radial_vec(heading_ + glm::half_pi<float>() * dir, radius);
 
       while (dir > 0 ? heading_ < new_heading : heading_ > new_heading) {
         ecs.write_new_entity(
@@ -307,7 +275,7 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
         //    arc length = r * theta.
         //    arc length / r = theta.
         heading_ += (SPACING / radius) * dir;
-        start_ = center + sin_cos_vector(
+        start_ = center + radial_vec(
             heading_ - glm::half_pi<float>() * dir, radius);
       }
       heading_ = new_heading;
@@ -485,7 +453,8 @@ Error run() {
 
       ship_transform.rotation += ship_rotation_vel * TIME_STEP_MS;
       ship_speed += ship_acc * TIME_STEP_MS;
-      auto pos_change = sin_cos_vector(ship_transform.rotation, ship_speed * TIME_STEP_MS);
+      auto pos_change = radial_vec(ship_transform.rotation,
+                                   ship_speed * TIME_STEP_MS);
       ship_transform.pos = ship_transform.pos + pos_change;
       ship_rotation_vel = 0;
       ship_acc = 0;
@@ -499,37 +468,32 @@ Error run() {
       zoom = 0.25f;
       if (ship_speed > 0.001) zoom -= std::log(ship_speed * 1000) * 0.06;
 
-      glm::vec3 ship_pos3(ship_transform.pos.x, ship_transform.pos.y, 0);
-      glm::vec3 to_nose = to_vec3(sin_cos_vector(ship_transform.rotation,
-                                                 SHIP_HALF_LENGTH));
+      glm::vec3 ship_pos3 = to_vec3(ship_transform.pos);
+      glm::vec3 to_nose = radial_vec3(ship_transform.rotation,
+                                      SHIP_HALF_LENGTH);
       glm::vec3 nose = ship_pos3 + to_nose;
-      glm::vec3 ship_back = ship_pos3 + glm::normalize(to_nose) * (-SHIP_HALF_LENGTH);
-      glm::vec3 to_left = to_vec3(sin_cos_vector(
-              ship_transform.rotation + glm::half_pi<float>(), SHIP_HALF_WIDTH));
-      glm::vec3 left_back = ship_back + to_left;
-      glm::vec3 right_back = ship_back - to_left;
-      for (const auto& [id, line_transform, _]
-           : ecs.read_all<Transform, LineTag>()) {
+      glm::vec3 ship_back = ship_pos3 + vec_resize(to_nose, -SHIP_HALF_LENGTH);
+      glm::vec3 to_left = to_vec3(vec_resize(clockwize(to_nose),
+                                             SHIP_HALF_WIDTH));
+      auto [left_back, right_back] = plus_minus(ship_back, to_left);
+      for (const auto& [id, line_transform, _] :
+           ecs.read_all<Transform, LineTag>()) {
         // Bounds check first.
         if (glm::distance(line_transform.pos, ship_transform.pos) <
             line_transform.length + SHIP_HALF_LENGTH) {
-          glm::vec3 line_pos3(line_transform.pos.x, line_transform.pos.y, 0);
-          glm::vec3 parallel = to_vec3(sin_cos_vector(line_transform.rotation,
-                                                      line_transform.length / 2));
-          glm::vec3 ends[2] = {line_pos3 + parallel, line_pos3 - parallel};
-
-          std::vector<glm::vec3> closest_points;
-          bool found_intersection = false;
+          glm::vec3 line_pos3 = to_vec3(line_transform.pos);
+          glm::vec3 parallel = radial_vec3(line_transform.rotation,
+                                           line_transform.length / 2);
+          auto ends = plus_minus(line_pos3, parallel);
           for (const glm::vec3& point : {nose, left_back, right_back}) {
-            glm::vec3 closest_point =
-              glm::closestPointOnLine(point, ends[0], ends[1]);
-            if (barycentric_point_in_triangle(closest_point, nose, left_back, right_back)) {
-              found_intersection = true;
+            glm::vec3 closest_point = glm::closestPointOnLine(
+                point, std::get<0>(ends), std::get<1>(ends));
+            if (barycentric_point_in_triangle(closest_point, nose, left_back,
+                                              right_back)) {
+              ecs.mark_to_delete(id);
               break;
             }
           }
-
-          if (found_intersection) ecs.mark_to_delete(id);
         }
       }
 
