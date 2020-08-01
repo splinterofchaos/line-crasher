@@ -31,6 +31,7 @@ float cross2(const glm::vec3& a, const glm::vec3& b) {
   return a.x * b.y - a.y * b.x;
 }
 
+// Thanks to https://stackoverflow.com/questions/563198/how-do-you-detect-where-two-line-segments-intersect
 bool segment_segment_intersection(glm::vec3 p1, glm::vec3 p2,
                                   glm::vec3 q1, glm::vec3 q2) {
   glm::vec3 r = p2 - p1;
