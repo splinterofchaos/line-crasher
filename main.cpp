@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <random>
 
 #include "ecs.h"
 #include "glpp.h"
@@ -22,6 +23,24 @@ constexpr int WINDOW_WIDTH = 800;
 // Target 60 FPS and do physics updates four times as often.
 constexpr auto TIME_STEP = std::chrono::milliseconds(1000) / (60 * 4);
 constexpr auto TIME_STEP_MS = TIME_STEP.count();
+
+// Globals are bad, but random is good.
+std::random_device rd;
+std::mt19937 random_gen;
+
+int random_int(std::mt19937& gen, int min, int max) {
+  auto distribution = std::uniform_int_distribution(min, max - 1);
+  return distribution(gen);
+}
+
+int random_int(std::mt19937& gen, int max) {
+  return random_int(gen, 0, max);
+}
+
+bool random_bool(std::mt19937& gen) {
+  auto distribution = std::uniform_int_distribution<int>(false, true);
+  return distribution(gen);
+}
 
 // Represents the in-game understanding of user inputs.
 struct ShipController {
@@ -213,7 +232,16 @@ class TrackGenerator {
   float heading_ = 0;  // The direction of the track.
   ShaderBindings* shader_bindings_;
 
+  // The spacing between different segments of road.
+  constexpr static float SPACING = 1.f;
+
 public:
+  enum Strategy {
+    LONG_STRAIGHT,
+    CIRCULAR_CURVE,
+    N_STRAGEGIES
+  };
+
   TrackGenerator(glm::vec2 start, ShaderBindings* bindings)
     : start_(start), shader_bindings_(bindings) { }
 
@@ -222,19 +250,53 @@ public:
 
   const glm::vec2& start() { return start_; }
 
-  void write_track(Ecs& ecs);
+  void write_track(Ecs& ecs, Strategy strat);
 };
 
-void TrackGenerator::write_track(Ecs& ecs) {
-  for (unsigned int i = 0; i < 10; ++i) {
-    ecs.write_new_entity(
-        Transform{start_, heading_ + glm::half_pi<float>(), 1},
-        shader_bindings_, LineTag{});
-    start_ += sin_cos_vector(heading_);
+void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
+  switch (strat) {
+    case TrackGenerator::LONG_STRAIGHT:
+      for (unsigned int i = 0; i < 10; ++i) {
+        ecs.write_new_entity(
+            Transform{start_, heading_ + glm::half_pi<float>(), 3},
+            shader_bindings_, LineTag{});
+        start_ += sin_cos_vector(heading_, SPACING);
+      }
+      break;
+    case TrackGenerator::CIRCULAR_CURVE: {
+      float radius = random_int(random_gen, 6, 20);
+      int dir = random_bool(random_gen) ? 1 : -1;
+      // Each turn should have an angle of between 45 and 90 degrees.
+      auto angle =
+        (random_int(random_gen, 50, 101) / 100.f) * glm::half_pi<float>();
+
+      float new_heading = heading_ + angle * dir;
+      glm::vec2 center = start_ +
+        sin_cos_vector(heading_ + glm::half_pi<float>() * dir, radius);
+
+      while (dir > 0 ? heading_ < new_heading : heading_ > new_heading) {
+        ecs.write_new_entity(
+            Transform{start_, heading_ + glm::half_pi<float>() * dir, 3},
+            shader_bindings_, LineTag{});
+        // We want to draw the next segment SPACING further into the curve. In
+        // other words, we want an arc length of SPACING.
+        //    arc length = r * theta.
+        //    arc length / r = theta.
+        heading_ += (SPACING / radius) * dir;
+        start_ = center + sin_cos_vector(
+            heading_ - glm::half_pi<float>() * dir, radius);
+      }
+      heading_ = new_heading;
+      break;
+    }
+    case TrackGenerator::N_STRAGEGIES:
+      std::cerr << "unhandled TrackGenerator::Strategy" << std::endl;
   }
 }
 
 Error run() {
+  random_gen.seed(rd());
+
   Graphics gfx;
   if (Error e = gfx.init(WINDOW_WIDTH, WINDOW_HEIGHT); !e.ok) return e;
 
@@ -337,7 +399,7 @@ Error run() {
 
   // One should be roughly the width of the player ship.
   TrackGenerator track_gen(glm::vec2(1, 0), &line_shader_bindings);
-  track_gen.write_track(ecs);
+  track_gen.write_track(ecs, TrackGenerator::LONG_STRAIGHT);
 
   // TODO: These should eventually be stored into components, too.
   ShipController ship_controller;
@@ -424,7 +486,9 @@ Error run() {
       }
 
       if (glm::distance(track_gen.start(), camera_offset) < 2.f / zoom) {
-        track_gen.write_track(ecs);
+        auto strat = (TrackGenerator::Strategy)
+          random_int(random_gen, TrackGenerator::N_STRAGEGIES);
+        track_gen.write_track(ecs, strat);
       }
     }
 
