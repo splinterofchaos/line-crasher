@@ -236,7 +236,7 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
         ecs.write_new_entity(
             Transform{start_, heading_ + glm::half_pi<float>(), 3},
             shader_bindings_, LineTag{});
-        start_ += radial_vec(heading_, SPACING);
+        start_ += radial_vec3(heading_, SPACING);
       }
       break;
     case TrackGenerator::CIRCULAR_CURVE: {
@@ -259,7 +259,7 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
         //    arc length = r * theta.
         //    arc length / r = theta.
         heading_ += (SPACING / radius) * dir;
-        start_ = center + radial_vec(
+        start_ = center + radial_vec3(
             heading_ - glm::half_pi<float>() * dir, radius);
       }
       heading_ = new_heading;
@@ -440,8 +440,8 @@ Error run() {
 
       ship_transform.rotation += ship_rotation_vel * TIME_STEP_MS;
       ship_speed += ship_acc * TIME_STEP_MS;
-      auto pos_change = radial_vec(ship_transform.rotation,
-                                   ship_speed * TIME_STEP_MS);
+      auto pos_change = radial_vec3(ship_transform.rotation,
+                                    ship_speed * TIME_STEP_MS);
       ship_transform.pos = ship_transform.pos + pos_change;
       ship_rotation_vel = 0;
 
