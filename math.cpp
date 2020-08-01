@@ -2,9 +2,8 @@
 
 #include <glm/gtx/transform.hpp>
 
-glm::mat4x4 transformation(glm::vec2 pos, float angle, float scale) {
-  glm::mat4x4 transform = glm::translate(glm::mat4(1.f),
-                                         glm::vec3(pos.x * scale, pos.y * scale, 0));
+glm::mat4x4 transformation(glm::vec3 pos, float angle, float scale) {
+  glm::mat4x4 transform = glm::translate(glm::mat4(1.f), pos * scale);
   transform *= glm::scale(glm::mat4(1.f), glm::vec3(scale));
   transform = glm::rotate(transform, angle, glm::vec3(0, 0, 1));
   return transform;

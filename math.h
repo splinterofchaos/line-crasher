@@ -3,7 +3,7 @@
 #include <glm/vec2.hpp>
 #include <glm/mat4x4.hpp>
 
-glm::mat4x4 transformation(glm::vec2 pos, float angle, float scale);
+glm::mat4x4 transformation(glm::vec3 pos, float angle, float scale);
 
 bool barycentric_point_in_triangle(glm::vec3 point, glm::vec3 v0, glm::vec3 v1,
                                    glm::vec3 v2);

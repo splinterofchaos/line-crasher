@@ -95,11 +95,12 @@ Error construct_line_shader(GlProgram& line_shader_program) {
   Shader verts(Shader::Type::VERTEX);
   verts.add_source(R"(
 		#version 140
-    in vec2 vertex_pos;
+    in vec3 vertex_pos;
     uniform mat4 transform;
     uniform float length;
     void main() {
-      gl_Position = transform * vec4(vertex_pos.x * length, vertex_pos.y, 1, 1);
+      gl_Position = transform * vec4(vertex_pos.x * length, vertex_pos.y,
+                                     vertex_pos.z, 1);
     }
   )");
   if (Error e = verts.compile(); !e.ok) return e;
@@ -121,7 +122,7 @@ Error construct_line_shader(GlProgram& line_shader_program) {
 }
 
 struct Transform {
-  glm::vec2 pos;
+  glm::vec3 pos;
   float rotation;  // ... in radians.
 
   // TODO: There might be a more appropriate component for this.
@@ -147,13 +148,13 @@ struct ShaderBindings {
 };
 
 struct Vertex {
-  glm::vec2 pos;
+  glm::vec3 pos;
   glm::vec2 tex_coord;
 };
 
 void draw_object(const Transform& transform,
                  const ShaderBindings* shader_bindings,
-                 glm::vec2 camera_offset,
+                 glm::vec3 camera_offset,
                  float zoom) {
   static const ShaderBindings* last_bindings = nullptr;
   if (last_bindings != shader_bindings) {
@@ -162,7 +163,7 @@ void draw_object(const Transform& transform,
     gl::bindBuffer(GL_ARRAY_BUFFER, shader_bindings->vbo);
 
     gl::enableVertexAttribArray(shader_bindings->vertex_pos_attrib);
-    gl::vertexAttribPointer<float>(shader_bindings->vertex_pos_attrib, 2,
+    gl::vertexAttribPointer<float>(shader_bindings->vertex_pos_attrib, 3,
                                    GL_FALSE, &Vertex::pos);
 
     if (shader_bindings->tex_coord_attrib != -1) {
@@ -173,7 +174,7 @@ void draw_object(const Transform& transform,
   }
   last_bindings = shader_bindings;
 
-  glm::vec2 visual_pos = transform.pos;
+  glm::vec3 visual_pos = transform.pos;
   visual_pos -= camera_offset;
 
   glUniformMatrix4fv(
@@ -203,7 +204,7 @@ struct LineTag { };
 using Ecs = EntityComponentSystem<Transform, ShaderBindings*, LineTag>;
 
 class TrackGenerator {
-  glm::vec2 start_;
+  glm::vec3 start_;
   float heading_ = 0;  // The direction of the track.
   ShaderBindings* shader_bindings_;
 
@@ -217,13 +218,13 @@ public:
     N_STRAGEGIES
   };
 
-  TrackGenerator(glm::vec2 start, ShaderBindings* bindings)
+  TrackGenerator(glm::vec3 start, ShaderBindings* bindings)
     : start_(start), shader_bindings_(bindings) { }
 
   void set_heading(float h) { heading_ = h; }
   float heading() const { return heading_; }
 
-  const glm::vec2& start() { return start_; }
+  const glm::vec3& start() { return start_; }
 
   void write_track(Ecs& ecs, Strategy strat);
 };
@@ -235,7 +236,7 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
         ecs.write_new_entity(
             Transform{start_, heading_ + glm::half_pi<float>(), 3},
             shader_bindings_, LineTag{});
-        start_ += radial_vec(heading_, SPACING);
+        start_ += radial_vec3(heading_, SPACING);
       }
       break;
     case TrackGenerator::CIRCULAR_CURVE: {
@@ -246,8 +247,8 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
         (random_int(random_gen, 50, 101) / 100.f) * glm::half_pi<float>();
 
       float new_heading = heading_ + angle * dir;
-      glm::vec2 center = start_ +
-        radial_vec(heading_ + glm::half_pi<float>() * dir, radius);
+      glm::vec3 center = start_ +
+        radial_vec3(heading_ + glm::half_pi<float>() * dir, radius);
 
       while (dir > 0 ? heading_ < new_heading : heading_ > new_heading) {
         ecs.write_new_entity(
@@ -258,7 +259,7 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
         //    arc length = r * theta.
         //    arc length / r = theta.
         heading_ += (SPACING / radius) * dir;
-        start_ = center + radial_vec(
+        start_ = center + radial_vec3(
             heading_ - glm::half_pi<float>() * dir, radius);
       }
       heading_ = new_heading;
@@ -312,11 +313,11 @@ Error run() {
 
   //VBO data
   Vertex quad_vertecies[] = {
-    // Position    TexCoords
-    {{-0.5f, -0.5f},  {0.0f, 1.0f}},
-    {{ 0.5f, -0.5f},  {1.0f, 1.0f}},
-    {{ 0.5f,  0.5f},  {1.0f, 0.0f}},
-    {{-0.5f,  0.5f},  {0.0f, 0.0f}}
+    // Position              TexCoords
+    {{-0.5f, -0.5f, 0.0f},  {0.0f, 1.0f}},
+    {{ 0.5f, -0.5f, 0.0f},  {1.0f, 1.0f}},
+    {{ 0.5f,  0.5f, 0.0f},  {1.0f, 0.0f}},
+    {{-0.5f,  0.5f, 0.0f},  {0.0f, 0.0f}}
   };
 
   GLuint quad_vbo = gl::genBuffer();
@@ -324,11 +325,11 @@ Error run() {
   gl::bufferData(GL_ARRAY_BUFFER, quad_vertecies, GL_DYNAMIC_DRAW);
 
   Vertex line_vertecies[] = {
-    // Position    TexCoords
-    {{-0.5f, -0.05f},  {0.0f, 0.0f}},
-    {{ 0.5f, -0.05f},  {0.0f, 0.0f}},
-    {{ 0.5f,  0.05f},  {0.0f, 0.0f}},
-    {{-0.5f,  0.05f},  {0.0f, 0.0f}}
+    // Position               TexCoords
+    {{-0.5f, -0.05f, 0.0f},  {0.0f, 0.0f}},
+    {{ 0.5f, -0.05f, 0.0f},  {0.0f, 0.0f}},
+    {{ 0.5f,  0.05f, 0.0f},  {0.0f, 0.0f}},
+    {{-0.5f,  0.05f, 0.0f},  {0.0f, 0.0f}}
   };
 
   GLuint line_vbo = gl::genBuffer();
@@ -358,7 +359,7 @@ Error run() {
           "tex_coord", player_shader_bindings.tex_coord_attrib);
       !e.ok) return e;
 
-  auto player = ecs.write_new_entity(Transform{glm::vec2(0.0f), 0, 0},
+  auto player = ecs.write_new_entity(Transform{glm::vec3(0.0f), 0, 0},
                                      &player_shader_bindings);
 
   ShaderBindings line_shader_bindings(&line_shader_program, line_vbo);
@@ -373,7 +374,7 @@ Error run() {
       !e.ok) return e;
 
   // One should be roughly the width of the player ship.
-  TrackGenerator track_gen(glm::vec2(1, 0), &line_shader_bindings);
+  TrackGenerator track_gen(glm::vec3(1, 0, 0), &line_shader_bindings);
   track_gen.write_track(ecs, TrackGenerator::LONG_STRAIGHT);
 
   // TODO: These should eventually be stored into components, too.
@@ -390,7 +391,7 @@ Error run() {
   bool keep_going = true;
   SDL_Event e;
 
-  glm::vec2 camera_offset(0.f);
+  glm::vec3 camera_offset(0.f);
   // TODO: make less linear.
   float zoom = 0.25f; // - ship_speed * 50;
 
@@ -439,8 +440,8 @@ Error run() {
 
       ship_transform.rotation += ship_rotation_vel * TIME_STEP_MS;
       ship_speed += ship_acc * TIME_STEP_MS;
-      auto pos_change = radial_vec(ship_transform.rotation,
-                                   ship_speed * TIME_STEP_MS);
+      auto pos_change = radial_vec3(ship_transform.rotation,
+                                    ship_speed * TIME_STEP_MS);
       ship_transform.pos = ship_transform.pos + pos_change;
       ship_rotation_vel = 0;
 
@@ -453,11 +454,11 @@ Error run() {
       zoom = 0.25f;
       if (ship_speed > 0.001) zoom -= std::log(ship_speed * 1000) * 0.06;
 
-      glm::vec3 ship_pos3 = to_vec3(ship_transform.pos);
       glm::vec3 to_nose = radial_vec3(ship_transform.rotation,
                                       SHIP_HALF_LENGTH);
-      glm::vec3 nose = ship_pos3 + to_nose;
-      glm::vec3 ship_back = ship_pos3 + vec_resize(to_nose, -SHIP_HALF_LENGTH);
+      glm::vec3 nose = ship_transform.pos + to_nose;
+      glm::vec3 ship_back = ship_transform.pos +
+                            vec_resize(to_nose, -SHIP_HALF_LENGTH);
       glm::vec3 to_left = to_vec3(vec_resize(clockwize(to_nose),
                                              SHIP_HALF_WIDTH));
       auto [left_back, right_back] = plus_minus(ship_back, to_left);
@@ -466,10 +467,9 @@ Error run() {
         // Bounds check first.
         if (glm::distance(line_transform.pos, ship_transform.pos) <
             line_transform.length + SHIP_HALF_LENGTH) {
-          glm::vec3 line_pos3 = to_vec3(line_transform.pos);
           glm::vec3 parallel = radial_vec3(line_transform.rotation,
                                            line_transform.length / 2);
-          auto ends = plus_minus(line_pos3, parallel);
+          auto ends = plus_minus(line_transform.pos, parallel);
           for (const glm::vec3& point : {nose, left_back, right_back}) {
             glm::vec3 closest_point = glm::closestPointOnLine(
                 point, std::get<0>(ends), std::get<1>(ends));
