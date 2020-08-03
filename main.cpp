@@ -35,7 +35,9 @@ constexpr float SHIP_SIDE_THRUST = 0.0005;
 constexpr float SHIP_TRUST = 0.0000001f;
 constexpr float SHIP_ROTATE_SPEED = 0.005;
 
-constexpr float SHIP_HALF_LENGTH = 0.5f;
+constexpr float SHIP_NOSE_LENGTH = 0.8f;
+constexpr float SHIP_TAIL_LENGTH = 0.2f;
+constexpr float SHIP_LENGTH = SHIP_NOSE_LENGTH + SHIP_TAIL_LENGTH;
 constexpr float SHIP_HALF_WIDTH = 0.5f;
 
 // Globals are bad, but random is good.
@@ -89,9 +91,9 @@ struct ShipPoints {
   ShipPoints(const Transform& ship_transform) {
     center_of_gravity = ship_transform.pos;
     glm::vec3 to_nose = radial_vec(ship_transform.rotation,
-                                   SHIP_HALF_LENGTH);
+                                   SHIP_NOSE_LENGTH);
     glm::vec3 ship_back = ship_transform.pos +
-      vec_resize(to_nose, -SHIP_HALF_LENGTH);
+      vec_resize(to_nose, -SHIP_TAIL_LENGTH);
     glm::vec3 to_left = vec_resize(clockwize(to_nose), SHIP_HALF_WIDTH);
 
     nose = ship_transform.pos + to_nose;
@@ -387,10 +389,10 @@ Error run() {
   //VBO data
   Vertex quad_vertecies[] = {
     // Position              TexCoords
-    {{-0.5f, -0.5f, 0.0f},  {0.0f, 1.0f}},
-    {{ 0.5f, -0.5f, 0.0f},  {1.0f, 1.0f}},
-    {{ 0.5f,  0.5f, 0.0f},  {1.0f, 0.0f}},
-    {{-0.5f,  0.5f, 0.0f},  {0.0f, 0.0f}}
+    {{-SHIP_TAIL_LENGTH, -SHIP_HALF_WIDTH, 0.0f},  {0.0f, 1.0f}},
+    {{ SHIP_NOSE_LENGTH, -SHIP_HALF_WIDTH, 0.0f},  {1.0f, 1.0f}},
+    {{ SHIP_NOSE_LENGTH,  SHIP_HALF_WIDTH, 0.0f},  {1.0f, 0.0f}},
+    {{-SHIP_TAIL_LENGTH,  SHIP_HALF_WIDTH, 0.0f},  {0.0f, 0.0f}}
   };
 
   GLuint quad_vbo = gl::genBuffer();
@@ -564,7 +566,7 @@ Error run() {
            ecs.read_all<Transform, LineData>()) {
         // Bounds check first.
         if (glm::distance(line_transform.pos, ship_points.center_of_gravity) <
-            line_transform.length + SHIP_HALF_LENGTH) {
+            line_transform.length + SHIP_LENGTH) {
           if (has_intersection(ship_points, LinePoints(line_transform))) {
             manual_thrusters_enabled = false;
             ecs.mark_to_delete(id);
