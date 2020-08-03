@@ -85,3 +85,5 @@ public:
 
   ~Graphics();
 };
+
+Error load_bmp_texture(const char* const filename, GLuint& texture);

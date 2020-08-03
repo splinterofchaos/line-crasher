@@ -1,5 +1,6 @@
 #include <sstream>
 
+#include "glpp.h"
 #include "graphics.h"
 
 // TODO: use glpp for the gl* functions.
@@ -135,4 +136,30 @@ Graphics::~Graphics() {
   SDL_GL_DeleteContext(gl_context_);
   SDL_DestroyWindow(win_);
   SDL_Quit();
+}
+
+Error load_bmp_texture(const char* const filename, GLuint& texture) {
+  SDL_Surface* surface = SDL_LoadBMP("art/ship 512 RGBA8.bmp");
+  if (surface == nullptr) {
+    return Error(concat_strings("Failed to load image: ", SDL_GetError()));
+  }
+
+  texture = gl::genTexture();
+  gl::bindTexture(GL_TEXTURE_2D, texture);
+  gl::texImage2D(GL_TEXTURE_2D, 0, GL_RGBA, surface->w, surface->h, 0, GL_BGRA,
+                 GL_UNSIGNED_BYTE, surface->pixels);
+  SDL_FreeSurface(surface);
+
+  if (auto e = glGetError(); e != GL_NO_ERROR) {
+    return Error(concat_strings(
+        "I'm too lazy to figure out if there's a function which maps this GL "
+        "error number to a string so here's a number: ", std::to_string(e)));
+  }
+
+  gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+  gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+
+  return Error();
 }

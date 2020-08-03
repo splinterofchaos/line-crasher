@@ -140,8 +140,24 @@ struct Transform {
   glm::vec3 pos;
   float rotation;  // ... in radians.
 
-  // TODO: There might be a more appropriate component for this.
+  // TODO: this should really be in LineData. The question is how to properly
+  // pipe it to the render code.
   float length;  // Used for lines in determining how long they are.
+};
+
+struct Gear {
+  float thrust;
+  glm::vec3 color;
+};
+
+constexpr std::array GEARS{
+  Gear{   1.00e-05, {0.2, 0.2, 0.5}},
+  Gear{   2.00e-05, {0.2, 0.2, 0.7}},
+  Gear{2.58001e-05, {0.2, 0.2, 0.9}}
+};
+
+struct LineData {
+  std::size_t gear;
 };
 
 // References all shader uniforms and attribute bindings.
@@ -221,21 +237,6 @@ std::chrono::milliseconds time_diff(
   return std::chrono::duration_cast<std::chrono::milliseconds>(
       new_time - old_time);
 }
-
-struct Gear {
-  float thrust;
-  glm::vec3 color;
-};
-
-constexpr std::array GEARS{
-  Gear{   1.00e-05, {0.2, 0.2, 0.5}},
-  Gear{   2.00e-05, {0.2, 0.2, 0.7}},
-  Gear{2.58001e-05, {0.2, 0.2, 0.9}}
-};
-
-struct LineData {
-  std::size_t gear;
-};
 
 using Ecs = EntityComponentSystem<Transform, ShaderBindings*, Color, LineData>;
 
@@ -337,28 +338,10 @@ Error run() {
   //Initialize clear color
   gl::clearColor(0.f, 0.f, 0.f, 1.f);
 
-  SDL_Surface* ship_surface = SDL_LoadBMP("art/ship 512 RGBA8.bmp");
-  if (ship_surface == nullptr) {
-    return Error(concat_strings("Failed to load image: ", SDL_GetError()));
-  }
-
-  GLuint ship_texture = gl::genTexture();
-  gl::bindTexture(GL_TEXTURE_2D, ship_texture);
-  gl::texImage2D(GL_TEXTURE_2D, 0, GL_RGBA, ship_surface->w,
-                 ship_surface->h, 0, GL_BGRA, GL_UNSIGNED_BYTE,
-                 ship_surface->pixels);
-  SDL_FreeSurface(ship_surface);
-
-  if (auto e = glGetError(); e != GL_NO_ERROR) {
-    return Error(concat_strings(
-        "I'm too lazy to figure out if there's a function which maps this GL "
-        "error number to a string so here's a number: ", std::to_string(e)));
-  }
-
-  gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-  gl::texParameter(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+  GLuint ship_texture;
+  if (Error e = load_bmp_texture("art/ship 512 RGBA8.bmp", ship_texture);
+      !e.ok)
+    return e;
 
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glEnable(GL_BLEND);

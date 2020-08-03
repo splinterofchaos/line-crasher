@@ -16,7 +16,7 @@ obj/ecs_test : ecs.h ecs_test.cpp test.h util.h
 	${COMPILER} ${OPS} ecs_test.cpp -o obj/ecs_test
 	./obj/ecs_test
 
-obj/graphics.o : graphics.h graphics.cpp util.h
+obj/graphics.o : graphics.h graphics.cpp glpp.h util.h
 	${COMPILER} ${OPS} -c graphics.cpp -o obj/graphics.o
 
 obj/math.o : math.h math.cpp
