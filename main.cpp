@@ -7,6 +7,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/closest_point.hpp>
 
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -210,16 +211,27 @@ std::chrono::milliseconds time_diff(
       new_time - old_time);
 }
 
-// This little tag just identifies an entity as a line segment as opposed to a
-// player or UI element.
-struct LineTag { };
+struct Gear {
+  float thrust;
+};
 
-using Ecs = EntityComponentSystem<Transform, ShaderBindings*, LineTag>;
+constexpr std::array GEARS{
+  Gear{   0.59e-05},
+  Gear{   2.00e-05},
+  Gear{2.58001e-05}
+};
+
+struct LineData {
+  std::size_t gear;
+};
+
+using Ecs = EntityComponentSystem<Transform, ShaderBindings*, LineData>;
 
 class TrackGenerator {
   glm::vec3 start_;
   float heading_ = 0;  // The direction of the track.
   ShaderBindings* shader_bindings_;
+  std::size_t current_gear_ = 0;
 
   // The spacing between different segments of road.
   constexpr static float SPACING = 1.f;
@@ -228,6 +240,8 @@ public:
   enum Strategy {
     LONG_STRAIGHT,
     CIRCULAR_CURVE,
+    GEAR_UP,
+    GEAR_DOWN,
     N_STRAGEGIES
   };
 
@@ -240,17 +254,31 @@ public:
   const glm::vec3& start() { return start_; }
 
   void write_track(Ecs& ecs, Strategy strat);
+
+  void write_plank(Ecs& ecs);
 };
+
+void TrackGenerator::write_plank(Ecs& ecs) {
+  ecs.write_new_entity(
+      Transform{start_, heading_ + glm::half_pi<float>(), 3},
+      shader_bindings_, LineData{current_gear_});
+}
 
 void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
   switch (strat) {
     case TrackGenerator::LONG_STRAIGHT:
-      for (unsigned int i = 0; i < 10; ++i) {
-        ecs.write_new_entity(
-            Transform{start_, heading_ + glm::half_pi<float>(), 3},
-            shader_bindings_, LineTag{});
+      for (unsigned int i = 0; i < 5; ++i) {
+        write_plank(ecs);
         start_ += radial_vec(heading_, SPACING);
       }
+      break;
+    case TrackGenerator::GEAR_UP:
+      if (current_gear_ + 1 < GEARS.size()) current_gear_ += 1;
+      write_track(ecs, TrackGenerator::LONG_STRAIGHT);
+      break;
+    case TrackGenerator::GEAR_DOWN:
+      if (current_gear_ > 0) current_gear_ -= 1;
+      write_track(ecs, TrackGenerator::LONG_STRAIGHT);
       break;
     case TrackGenerator::CIRCULAR_CURVE: {
       float radius = random_int(random_gen, 6, 20);
@@ -264,9 +292,7 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
         radial_vec(heading_ + glm::half_pi<float>() * dir, radius);
 
       while (dir > 0 ? heading_ < new_heading : heading_ > new_heading) {
-        ecs.write_new_entity(
-            Transform{start_, heading_ + glm::half_pi<float>() * dir, 3},
-            shader_bindings_, LineTag{});
+        write_plank(ecs);
         // We want to draw the next segment SPACING further into the curve. In
         // other words, we want an arc length of SPACING.
         //    arc length = r * theta.
@@ -395,6 +421,10 @@ Error run() {
   glm::vec3 ship_velocity(0.f);
   // The acceleration the ship always has in the direction it faces.
   float ship_thrust = 0;
+  std::size_t ship_gear = 0;
+  // If true, the player may control their thrusters with up and down on the
+  // arrow keys.
+  bool manual_thrusters_enabled = true;
 
   auto time = std::chrono::high_resolution_clock::now();
   std::chrono::high_resolution_clock::time_point last_physics_update =
@@ -442,9 +472,13 @@ Error run() {
       last_physics_update += TIME_STEP;
 
       float ship_rotation_vel = 0;
-      if (ship_controller.thruster) ship_thrust += SHIP_TRUST;
-      if (ship_controller.breaks)
-        ship_thrust = std::max(ship_thrust - SHIP_TRUST, 0.f);
+      if (manual_thrusters_enabled) {
+        if (ship_controller.thruster) ship_thrust += SHIP_TRUST;
+        if (ship_controller.breaks)
+          ship_thrust = std::max(ship_thrust - SHIP_TRUST, 0.f);
+      } else {
+        ship_thrust = GEARS[ship_gear].thrust;
+      }
       if (ship_controller.rotate_clockwise)
         ship_rotation_vel -= SHIP_ROTATE_SPEED;
       if (ship_controller.rotate_counterclockwise)
@@ -495,8 +529,8 @@ Error run() {
                             vec_resize(to_nose, -SHIP_HALF_LENGTH);
       glm::vec3 to_left = vec_resize(clockwize(to_nose), SHIP_HALF_WIDTH);
       auto [left_back, right_back] = plus_minus(ship_back, to_left);
-      for (const auto& [id, line_transform, _] :
-           ecs.read_all<Transform, LineTag>()) {
+      for (const auto& [id, line_transform, line_data] :
+           ecs.read_all<Transform, LineData>()) {
         // Bounds check first.
         if (glm::distance(line_transform.pos, ship_transform.pos) <
             line_transform.length + SHIP_HALF_LENGTH) {
@@ -508,7 +542,9 @@ Error run() {
           auto [a, b] = plus_minus(line_transform.pos, parallel);
           if (segment_segment_intersection(left_back, nose, a, b) ||
               segment_segment_intersection(right_back, nose, a, b)) {
+            manual_thrusters_enabled = false;
             ecs.mark_to_delete(id);
+            ship_gear = line_data.gear;
             break;
           }
         }
