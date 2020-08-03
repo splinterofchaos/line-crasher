@@ -35,6 +35,9 @@ constexpr float SHIP_SIDE_THRUST = 0.0005;
 constexpr float SHIP_TRUST = 0.0000001f;
 constexpr float SHIP_ROTATE_SPEED = 0.005;
 
+constexpr float SHIP_HALF_LENGTH = 0.5f;
+constexpr float SHIP_HALF_WIDTH = 0.5f;
+
 // Globals are bad, but random is good.
 std::random_device rd;
 std::mt19937 random_gen;
@@ -57,6 +60,17 @@ bool random_bool(std::mt19937& gen) {
   return distribution(gen);
 }
 
+// All entities that can be rendered have a transform that describes their
+// position and shape.
+struct Transform {
+  glm::vec3 pos;
+  float rotation;  // in radians.
+
+  // TODO: this should really be in LineData. The question is how to properly
+  // pipe it to the render code.
+  float length;  // Used for lines in determining how long they are.
+};
+
 // Represents the in-game understanding of user inputs.
 struct ShipController {
   bool thruster = false;
@@ -69,8 +83,41 @@ struct ShipController {
   }
 };
 
-constexpr float SHIP_HALF_LENGTH = 0.5f;
-constexpr float SHIP_HALF_WIDTH = 0.5f;
+struct ShipPoints {
+  glm::vec3 center_of_gravity, nose, left_back, right_back;
+
+  ShipPoints(const Transform& ship_transform) {
+    center_of_gravity = ship_transform.pos;
+    glm::vec3 to_nose = radial_vec(ship_transform.rotation,
+                                   SHIP_HALF_LENGTH);
+    glm::vec3 ship_back = ship_transform.pos +
+      vec_resize(to_nose, -SHIP_HALF_LENGTH);
+    glm::vec3 to_left = vec_resize(clockwize(to_nose), SHIP_HALF_WIDTH);
+
+    nose = ship_transform.pos + to_nose;
+    std::tie(left_back, right_back) = plus_minus(ship_back, to_left);
+  }
+};
+
+struct LinePoints {
+  glm::vec3 a, b;
+
+  LinePoints(const Transform& line_transform) {
+    glm::vec3 parallel = radial_vec(line_transform.rotation,
+                                    line_transform.length / 2);
+    std::tie(a, b) = plus_minus(line_transform.pos, parallel);
+  }
+};
+
+// Check if the line segment, [a, b], intersects either side of the ship. Since
+// it can't go backwards, we don't need to check the back side.
+bool has_intersection(const ShipPoints& ship_points,
+                      const LinePoints& line_points) {
+  return segment_segment_intersection(ship_points.left_back, ship_points.nose,
+                                      line_points.a, line_points.b) ||
+         segment_segment_intersection(ship_points.right_back, ship_points.nose,
+                                      line_points.a, line_points.b);
+}
 
 Error construct_ship_shader(GlProgram& ship_shader_program)
 {
@@ -135,15 +182,6 @@ Error construct_line_shader(GlProgram& line_shader_program) {
   line_shader_program.add_shader(frag);
   return line_shader_program.link();
 }
-
-struct Transform {
-  glm::vec3 pos;
-  float rotation;  // ... in radians.
-
-  // TODO: this should really be in LineData. The question is how to properly
-  // pipe it to the render code.
-  float length;  // Used for lines in determining how long they are.
-};
 
 struct Gear {
   float thrust;
@@ -508,7 +546,6 @@ Error run() {
 
       ship_transform.pos += ship_velocity * float(TIME_STEP_MS);
 
-
       std::cout << "|v| = " << glm::length(ship_velocity) << std::endl;
       std::cout << "thrust = " << ship_thrust << std::endl;
 
@@ -519,28 +556,16 @@ Error run() {
       camera_offset += ship_transform.pos;
 
       zoom = 0.25f;
-      if (glm::length(ship_velocity) > 0.001) zoom -= std::log(glm::length(ship_velocity) * 1000) * 0.06;
+      if (glm::length(ship_velocity) > 0.001)
+        zoom -= std::log(glm::length(ship_velocity) * 1000) * 0.06;
 
-      glm::vec3 to_nose = radial_vec(ship_transform.rotation,
-                                     SHIP_HALF_LENGTH);
-      glm::vec3 nose = ship_transform.pos + to_nose;
-      glm::vec3 ship_back = ship_transform.pos +
-                            vec_resize(to_nose, -SHIP_HALF_LENGTH);
-      glm::vec3 to_left = vec_resize(clockwize(to_nose), SHIP_HALF_WIDTH);
-      auto [left_back, right_back] = plus_minus(ship_back, to_left);
+      ShipPoints ship_points(ship_transform);
       for (const auto& [id, line_transform, line_data] :
            ecs.read_all<Transform, LineData>()) {
         // Bounds check first.
-        if (glm::distance(line_transform.pos, ship_transform.pos) <
+        if (glm::distance(line_transform.pos, ship_points.center_of_gravity) <
             line_transform.length + SHIP_HALF_LENGTH) {
-          // Check if the line segment, [a, b], intersects either side of the
-          // ship. Since it can't go backwards, we don't need to check the
-          // back side.
-          glm::vec3 parallel = radial_vec(line_transform.rotation,
-                                          line_transform.length / 2);
-          auto [a, b] = plus_minus(line_transform.pos, parallel);
-          if (segment_segment_intersection(left_back, nose, a, b) ||
-              segment_segment_intersection(right_back, nose, a, b)) {
+          if (has_intersection(ship_points, LinePoints(line_transform))) {
             manual_thrusters_enabled = false;
             ecs.mark_to_delete(id);
             ship_gear = line_data.gear;
