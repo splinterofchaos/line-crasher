@@ -191,12 +191,12 @@ struct Gear {
 };
 
 constexpr std::array GEARS{
-  Gear{1.500e-05, {0.2, 0.2, 0.5}},
-  Gear{1.750e-05, {0.2, 0.2, 0.55}},
+  Gear{1.500e-05, {0.1, 0.1, 0.5}},
+  Gear{1.750e-05, {0.1, 0.2, 0.55}},
   Gear{2.000e-05, {0.2, 0.2, 0.6}},
-  Gear{2.300e-05, {0.2, 0.2, 0.8}},
-  Gear{2.500e-05, {0.3, 0.3, 0.8}},
-  Gear{2.580e-05, {0.3, 0.3, 0.9}},
+  Gear{2.300e-05, {0.2, 0.3, 0.8}},
+  Gear{2.500e-05, {0.3, 0.4, 0.8}},
+  Gear{2.580e-05, {0.4, 0.4, 0.9}},
   Gear{3.000e-05, {0.5, 0.5, 1.0}}
 };
 
@@ -289,7 +289,13 @@ class TrackGenerator {
   float heading_ = 0;  // The direction of the track.
   ShaderBindings* shader_bindings_;
   std::size_t current_gear_ = 0;
-  float track_width_ = 2;
+  float track_width_ = SHIP_HALF_WIDTH * 2 * 10;
+
+  enum DifficultyIncreaseReason { GEAR_UP, NARROW_TRACK };
+
+  unsigned int planks_destroyed_ = 0;
+  unsigned int difficulty_increase_at_ = 100;
+  DifficultyIncreaseReason difficulty_increase_reason_ = GEAR_UP;
 
   // The spacing between different segments of road.
   constexpr static float SPACING = 1.f;
@@ -301,9 +307,7 @@ public:
   enum Strategy {
     LONG_STRAIGHT,
     CIRCULAR_CURVE,
-    GEAR_UP,
-    GEAR_DOWN,
-    CHANGE_WIDTH,
+    NARROW,
     N_STRAGEGIES
   };
 
@@ -316,8 +320,14 @@ public:
   const glm::vec3& start() { return start_; }
 
   void write_track(Ecs& ecs, Strategy strat);
+  void write_track(Ecs& ecs);
 
   void write_plank(Ecs& ecs, float width);
+
+  void delete_plank(Ecs& ecs, EntityId id) {
+    planks_destroyed_++;
+    ecs.mark_to_delete(id);
+  }
 };
 
 void TrackGenerator::write_plank(Ecs& ecs, float width) {
@@ -330,35 +340,29 @@ void TrackGenerator::write_plank(Ecs& ecs, float width) {
 // When changing the width of the track, we take `len` planks to go from `old_`
 // to `new_width`. This calculates the width of the i'th plank.
 float smooth_width(float old_width, float new_width,
-                   unsigned int i, unsigned int len) {
-  const float theta = (float(i + 1) / len) * glm::pi<float>();
+                   unsigned int i, unsigned int half_phase) {
+  const float theta = (float(i + 1) / half_phase) * glm::pi<float>();
   return glm::mix(new_width, old_width, std::cos(theta) / 2 + 0.5);
 
 }
 
 void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
   switch (strat) {
-    case TrackGenerator::LONG_STRAIGHT:
-      for (unsigned int i = 0; i < 1; ++i) {
-        write_plank(ecs, track_width_);
+    case TrackGenerator::LONG_STRAIGHT: {
+      static constexpr int LENGTH = 20;
+      for (unsigned int i = 0; i < 20; ++i) {
+        const float width = smooth_width(track_width_, track_width_ * 1.25,
+                                         i, LENGTH / 2);
+        write_plank(ecs, width);
         start_ += radial_vec(heading_, SPACING);
       }
       break;
-    case TrackGenerator::GEAR_UP:
-      if (current_gear_ + 1 < GEARS.size()) current_gear_ += 1;
-      break;
-    case TrackGenerator::GEAR_DOWN:
-      if (current_gear_ > 0) current_gear_ -= 1;
-      break;
-    case TrackGenerator::CHANGE_WIDTH: {
-      float diff = 4;
-      if (track_width_ >= MAX_WIDTH ||
-          (track_width_ - WIDTH_CHANGE > MIN_WIDTH &&
-           random_bool(random_gen))) {
-        diff = -diff;
-      }
-      float new_track_width = track_width_ + diff;
-      constexpr int LENGTH = 10;
+    }
+    case TrackGenerator::NARROW: {
+      static constexpr float diff = -2;
+      static constexpr int LENGTH = 10;
+      const float new_track_width = track_width_ + diff;
+      if (new_track_width < MIN_WIDTH) break;
       for (unsigned int i = 0; i < LENGTH; ++i) {
         write_plank(ecs,
                     smooth_width(track_width_, new_track_width, i, LENGTH));
@@ -398,6 +402,24 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
     case TrackGenerator::N_STRAGEGIES:
       std::cerr << "unhandled TrackGenerator::Strategy" << std::endl;
   }
+}
+
+void TrackGenerator::write_track(Ecs& ecs) {
+  Strategy strat = LONG_STRAIGHT;
+  if (planks_destroyed_ < difficulty_increase_at_) {
+    strat = random_bool(random_gen) ? LONG_STRAIGHT : CIRCULAR_CURVE;
+  } else {
+    switch (difficulty_increase_reason_) {
+      case GEAR_UP: strat = NARROW;
+                    difficulty_increase_reason_ = NARROW_TRACK;
+                    break;
+      case NARROW_TRACK: if (current_gear_ + 1 < GEARS.size()) ++current_gear_;
+                         difficulty_increase_reason_ = GEAR_UP;
+                         break;
+    }
+    difficulty_increase_at_ *= 1.75;
+  }
+  write_track(ecs, strat);
 }
 
 Error run() {
@@ -585,9 +607,6 @@ Error run() {
 
       ship_transform.pos += ship_velocity * float(TIME_STEP_MS);
 
-      std::cout << "|v| = " << glm::length(ship_velocity) << std::endl;
-      std::cout << "thrust = " << ship_thrust << std::endl;
-
       camera_offset = ship_velocity;
       // TODO: This isn't very intelligent. If the offset factor is too large,
       // the player will be off screen and if too small, overly centered.
@@ -606,7 +625,7 @@ Error run() {
             line_transform.length + SHIP_LENGTH) {
           if (has_intersection(ship_points, LinePoints(line_transform))) {
             manual_thrusters_enabled = false;
-            ecs.mark_to_delete(id);
+            track_gen.delete_plank(ecs, id);
             ship_gear = line_data.gear;
             break;
           }
@@ -614,9 +633,7 @@ Error run() {
       }
 
       if (glm::distance(track_gen.start(), camera_offset) < 2.f / zoom) {
-        auto strat = (TrackGenerator::Strategy)
-          random_int(random_gen, TrackGenerator::N_STRAGEGIES);
-        track_gen.write_track(ecs, strat);
+        track_gen.write_track(ecs);
       }
     }
 
