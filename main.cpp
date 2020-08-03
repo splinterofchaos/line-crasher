@@ -191,9 +191,13 @@ struct Gear {
 };
 
 constexpr std::array GEARS{
-  Gear{   1.00e-05, {0.2, 0.2, 0.5}},
-  Gear{   2.00e-05, {0.2, 0.2, 0.7}},
-  Gear{2.58001e-05, {0.2, 0.2, 0.9}}
+  Gear{1.500e-05, {0.2, 0.2, 0.5}},
+  Gear{1.750e-05, {0.2, 0.2, 0.55}},
+  Gear{2.000e-05, {0.2, 0.2, 0.6}},
+  Gear{2.300e-05, {0.2, 0.2, 0.8}},
+  Gear{2.500e-05, {0.3, 0.3, 0.8}},
+  Gear{2.580e-05, {0.3, 0.3, 0.9}},
+  Gear{3.000e-05, {0.5, 0.5, 1.0}}
 };
 
 struct LineData {
@@ -285,9 +289,13 @@ class TrackGenerator {
   float heading_ = 0;  // The direction of the track.
   ShaderBindings* shader_bindings_;
   std::size_t current_gear_ = 0;
+  float track_width_ = 2;
 
   // The spacing between different segments of road.
   constexpr static float SPACING = 1.f;
+  constexpr static float MAX_WIDTH = 10;
+  constexpr static float MIN_WIDTH = 1;
+  constexpr static float WIDTH_CHANGE = 4;
 
 public:
   enum Strategy {
@@ -295,6 +303,7 @@ public:
     CIRCULAR_CURVE,
     GEAR_UP,
     GEAR_DOWN,
+    CHANGE_WIDTH,
     N_STRAGEGIES
   };
 
@@ -308,34 +317,62 @@ public:
 
   void write_track(Ecs& ecs, Strategy strat);
 
-  void write_plank(Ecs& ecs);
+  void write_plank(Ecs& ecs, float width);
 };
 
-void TrackGenerator::write_plank(Ecs& ecs) {
+void TrackGenerator::write_plank(Ecs& ecs, float width) {
   ecs.write_new_entity(
-      Transform{start_, heading_ + glm::half_pi<float>(), 3},
+      Transform{start_, heading_ + glm::half_pi<float>(), width},
       shader_bindings_, Color{GEARS[current_gear_].color},
       LineData{current_gear_});
+}
+
+// When changing the width of the track, we take `len` planks to go from `old_`
+// to `new_width`. This calculates the width of the i'th plank.
+float smooth_width(float old_width, float new_width,
+                   unsigned int i, unsigned int len) {
+  const float theta = (float(i + 1) / len) * glm::pi<float>();
+  return glm::mix(new_width, old_width, std::cos(theta) / 2 + 0.5);
+
 }
 
 void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
   switch (strat) {
     case TrackGenerator::LONG_STRAIGHT:
-      for (unsigned int i = 0; i < 5; ++i) {
-        write_plank(ecs);
+      for (unsigned int i = 0; i < 1; ++i) {
+        write_plank(ecs, track_width_);
         start_ += radial_vec(heading_, SPACING);
       }
       break;
     case TrackGenerator::GEAR_UP:
       if (current_gear_ + 1 < GEARS.size()) current_gear_ += 1;
-      write_track(ecs, TrackGenerator::LONG_STRAIGHT);
       break;
     case TrackGenerator::GEAR_DOWN:
       if (current_gear_ > 0) current_gear_ -= 1;
-      write_track(ecs, TrackGenerator::LONG_STRAIGHT);
       break;
+    case TrackGenerator::CHANGE_WIDTH: {
+      float diff = 4;
+      if (track_width_ >= MAX_WIDTH ||
+          (track_width_ - WIDTH_CHANGE > MIN_WIDTH &&
+           random_bool(random_gen))) {
+        diff = -diff;
+      }
+      float new_track_width = track_width_ + diff;
+      constexpr int LENGTH = 10;
+      for (unsigned int i = 0; i < LENGTH; ++i) {
+        write_plank(ecs,
+                    smooth_width(track_width_, new_track_width, i, LENGTH));
+        start_ += radial_vec(heading_, SPACING);
+      }
+      track_width_ = new_track_width;
+      break;
+    }
     case TrackGenerator::CIRCULAR_CURVE: {
-      float radius = random_int(random_gen, 6, 20);
+      float gear_turn_ratio = (current_gear_ + 1) * 0.5;
+      float radius = random_int(
+          random_gen,
+          std::max(track_width_ * 2, track_width_ * gear_turn_ratio),
+          track_width_ * 5 * gear_turn_ratio);
       int dir = random_bool(random_gen) ? 1 : -1;
       // Each turn should have an angle of between 45 and 90 degrees.
       auto angle =
@@ -346,7 +383,7 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
         radial_vec(heading_ + glm::half_pi<float>() * dir, radius);
 
       while (dir > 0 ? heading_ < new_heading : heading_ > new_heading) {
-        write_plank(ecs);
+        write_plank(ecs, track_width_);
         // We want to draw the next segment SPACING further into the curve. In
         // other words, we want an arc length of SPACING.
         //    arc length = r * theta.
