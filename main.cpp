@@ -123,9 +123,10 @@ Error construct_line_shader(GlProgram& line_shader_program) {
   frag.add_source(R"(
     #version 140
     in vec2 TexCoord;
+    uniform vec3 color;
     out vec4 FragColor;
     void main() {
-      FragColor = vec4(1);
+      FragColor = vec4(color, 1);
     }
   )");
   if (Error e = frag.compile(); !e.ok) return e;
@@ -152,6 +153,7 @@ struct ShaderBindings {
   GLint texture_uniform = -1;
   GLint transform_uniform = -1;
   GLint length_uniform = -1;
+  GLint color_uniform = -1;
 
   GLint vertex_pos_attrib = -1;
   GLint tex_coord_attrib = -1;
@@ -166,8 +168,13 @@ struct Vertex {
   glm::vec2 tex_coord;
 };
 
+struct Color {
+  glm::vec3 c;
+};
+
 void draw_object(const Transform& transform,
                  const ShaderBindings* shader_bindings,
+                 const Color& color,
                  glm::vec3 camera_offset,
                  float zoom) {
   static const ShaderBindings* last_bindings = nullptr;
@@ -200,6 +207,10 @@ void draw_object(const Transform& transform,
     gl::uniform(shader_bindings->length_uniform, transform.length);
   }
 
+  if (shader_bindings->color_uniform != -1) {
+    gl::uniform3v(shader_bindings->color_uniform, 1, glm::value_ptr(color.c));
+  }
+
   gl::drawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 }
 
@@ -213,19 +224,20 @@ std::chrono::milliseconds time_diff(
 
 struct Gear {
   float thrust;
+  glm::vec3 color;
 };
 
 constexpr std::array GEARS{
-  Gear{   0.59e-05},
-  Gear{   2.00e-05},
-  Gear{2.58001e-05}
+  Gear{   1.00e-05, {0.2, 0.2, 0.5}},
+  Gear{   2.00e-05, {0.2, 0.2, 0.7}},
+  Gear{2.58001e-05, {0.2, 0.2, 0.9}}
 };
 
 struct LineData {
   std::size_t gear;
 };
 
-using Ecs = EntityComponentSystem<Transform, ShaderBindings*, LineData>;
+using Ecs = EntityComponentSystem<Transform, ShaderBindings*, Color, LineData>;
 
 class TrackGenerator {
   glm::vec3 start_;
@@ -261,7 +273,8 @@ public:
 void TrackGenerator::write_plank(Ecs& ecs) {
   ecs.write_new_entity(
       Transform{start_, heading_ + glm::half_pi<float>(), 3},
-      shader_bindings_, LineData{current_gear_});
+      shader_bindings_, Color{GEARS[current_gear_].color},
+      LineData{current_gear_});
 }
 
 void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
@@ -399,6 +412,7 @@ Error run() {
       !e.ok) return e;
 
   auto player = ecs.write_new_entity(Transform{glm::vec3(0.0f), 0, 0},
+                                     Color{glm::vec3()},  // unused
                                      &player_shader_bindings);
 
   ShaderBindings line_shader_bindings(&line_shader_program, line_vbo);
@@ -408,6 +422,8 @@ Error run() {
           "transform", line_shader_bindings.transform_uniform) &&
       line_shader_program.uniform_location(
           "length", line_shader_bindings.length_uniform) &&
+      line_shader_program.uniform_location(
+          "color", line_shader_bindings.color_uniform) &&
       line_shader_program.attribute_location(
           "vertex_pos", line_shader_bindings.vertex_pos_attrib);
       !e.ok) return e;
@@ -561,9 +577,9 @@ Error run() {
 
     gl::clear();
 
-    for (const auto& [id, transform, shader_bindings] :
-         ecs.read_all<Transform, ShaderBindings*>()) {
-      draw_object(transform, shader_bindings, camera_offset, zoom);
+    for (const auto& [id, transform, color, shader_bindings] :
+         ecs.read_all<Transform, Color, ShaderBindings*>()) {
+      draw_object(transform, shader_bindings, color, camera_offset, zoom);
     }
 
     gfx.swap_buffers();
