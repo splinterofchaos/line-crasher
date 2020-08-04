@@ -303,7 +303,6 @@ class TrackGenerator {
   constexpr static float SPACING = 1.f;
   constexpr static float MAX_WIDTH = SHIP_HALF_WIDTH * 2 * 10;
   constexpr static float MIN_WIDTH = SHIP_HALF_WIDTH * 2 * 1;
-  constexpr static float WIDTH_CHANGE = 4;
 
 public:
   enum Strategy {
@@ -348,17 +347,11 @@ float smooth_width(float old_width, float new_width,
 }
 
 void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
-  float width_diff = WIDTH_CHANGE;
-  if (track_width_ + width_diff >= MAX_WIDTH ||
-      (track_width_ - WIDTH_CHANGE > MIN_WIDTH &&
-       random_bool(random_gen))) {
-    width_diff = -width_diff;
-  }
-  const float new_track_width = track_width_ + width_diff;
+  const float new_track_width = random_int(random_gen, MIN_WIDTH, MAX_WIDTH);
 
   switch (strat) {
     case TrackGenerator::CHANGE_WIDTH: {
-      static constexpr int LENGTH = 5;
+      static constexpr int LENGTH = 10;
       if (new_track_width < MIN_WIDTH) break;
       for (unsigned int i = 0; i < LENGTH; ++i) {
         write_plank(ecs, heading_,
