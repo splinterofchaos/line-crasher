@@ -138,11 +138,11 @@ struct LinePoints {
 // it can't go backwards, we don't need to check the back side.
 std::pair<float, bool> intersection(const ShipPoints& ship_points,
                                     const LinePoints& line_points) {
-  if (auto [u, has_intersection] = segment_segment_intersection(
+  if (auto [point, has_intersection] = segment_segment_intersection(
           ship_points.left_back, ship_points.nose,
           line_points.a, line_points.b);
       has_intersection)
-    return {u, has_intersection};
+    return {point, has_intersection};
   return segment_segment_intersection(ship_points.right_back, ship_points.nose,
                                       line_points.a, line_points.b);
 }
@@ -428,6 +428,40 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
   }
 }
 
+// When the ship hits a plank, it will break it into two pieces. Adds one of
+// them to the ECS.
+void write_broken_plank(
+    Ecs& ecs,
+    // Between a and b, one point of the plank and where the intersection
+    // happened.
+    const glm::vec3& a,
+    const glm::vec3& b,
+    float u,  // The ratio of the plank this piece came from.
+    const Transform& plank_transform,
+    const glm::vec3& incoming_velocity,
+    ShaderBindings& shader_bindings,
+    const Color& color,
+    const std::chrono::high_resolution_clock::time_point& now) {
+  // Rotate clockwise (-1) or counter clockwise?
+  int dir = glm::sign(cross2(b - a, incoming_velocity));
+  // If 100% of linear velocity were converted into rotational velocity at the
+  // point of intersection, we would have
+  //    v = X * r
+  // where X is radians over time. If r is small, X is large; if r is large, X
+  // is small.
+  float rotational_vel = glm::length(incoming_velocity) * 0.5f /
+    (plank_transform.length * u * 0.5f) *  // <- actual radius
+    dir;
+  ecs.write_new_entity(
+      Transform{(a + b) / 2.f,
+                plank_transform.rotation,
+                plank_transform.length * u},
+      Physics{glm::vec3(), incoming_velocity / 2.f, rotational_vel},
+      TimeToDie{now + BROKEN_PLANK_LIFETIME},
+      &shader_bindings,
+      Color(color));
+}
+
 Error run() {
   random_gen.seed(rd());
 
@@ -634,35 +668,14 @@ Error run() {
             ecs.mark_to_delete(id);
             ship_gear = line_data.gear;
 
-            glm::vec3 ab = line_points.b - line_points.a;
-
-            // If 100% of linear velocity were converted into rotational
-            // velocity at the point of intersection, we would have
-            //    v = X * r
-            // where X is radians over time. If r is small, X is large; if r is
-            // large, X is small.
-            float rotation_a = glm::length(ship_physics.v) * 0.5 /
-                               (line_transform.length * u * 0.5);
-            float rotation_b = -glm::length(ship_physics.v) * 0.5 /
-                               (line_transform.length * (1 - u) * 0.5);
-
-            ecs.write_new_entity(
-                Transform{line_points.a + ab * u * 0.5f,
-                          line_transform.rotation,
-                          line_transform.length * u},
-                Physics{glm::vec3(), ship_physics.v / 2.f, rotation_a},
-                TimeToDie{last_physics_update + BROKEN_PLANK_LIFETIME},
-                &line_shader_bindings,
-                Color(color));
-
-            ecs.write_new_entity(
-                Transform{line_points.b - ab * (1 - u) * 0.5f,
-                          line_transform.rotation + glm::pi<float>(),
-                          line_transform.length * (1 - u)},
-                Physics{glm::vec3(), ship_physics.v / 2.f, rotation_b},
-                TimeToDie{last_physics_update + BROKEN_PLANK_LIFETIME},
-                &line_shader_bindings,
-                Color(color));
+            auto crash_point =
+              line_points.a + (line_points.b - line_points.a) * u;
+            write_broken_plank(ecs, line_points.a, crash_point, u,
+                               line_transform, ship_physics.v,
+                               line_shader_bindings, color, time);
+            write_broken_plank(ecs, line_points.b, crash_point, 1 - u,
+                               line_transform, ship_physics.v,
+                               line_shader_bindings, color, time);
             break;
           }
         }
