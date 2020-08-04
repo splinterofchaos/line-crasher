@@ -31,6 +31,8 @@ struct EntityData {
   bool active = true;
 };
 
+using EntityStore = SortedVector<EntityData>;
+
 constexpr bool operator < (EntityData a, EntityData b) { return a.id < b.id; }
 constexpr bool operator == (EntityData a, EntityData b) { return a.id == b.id; }
 constexpr bool operator != (EntityData a, EntityData b) { return a.id != b.id; }
@@ -47,13 +49,13 @@ struct ComponentData {
 
 // Each series of components is also manually sorted.
 template<typename T>
-using Store = std::vector<ComponentData<T>>;
+using Store = SortedVector<ComponentData<T>>;
 
 // A range abstraction that allows multiple component data series to be iterated
 // lazily over in a range-based for loop.
 template<typename StoreTuple>
 class ComponentRange {
-  const std::vector<EntityData>& ids_;
+  const EntityStore& ids_;
   StoreTuple stores_;
 
 protected:
@@ -157,7 +159,7 @@ protected:
   };
 
 public:
-  explicit ComponentRange(const std::vector<EntityData>& ids, StoreTuple stores)
+  explicit ComponentRange(const EntityStore& ids, StoreTuple stores)
     : ids_(ids), stores_(stores) { }
 
   auto begin() const {
@@ -179,7 +181,7 @@ class EntityComponentSystem {
 
   // The series of ID's will be contiguously stored (frequently iterated
   // through) and manually sorted.
-  std::vector<EntityData> entity_ids_;
+  EntityStore entity_ids_;
 
   // Entities to be deleted.
   std::vector<EntityId> garbage_ids_;
@@ -229,15 +231,13 @@ class EntityComponentSystem {
   }
 
   auto find_id(EntityId id) {
-    auto pred = [](EntityData d, EntityId id) { return d.id < id; };
-    auto it = lower_bound(entity_ids_, id, pred);
-    return std::tuple(it, it != entity_ids_.end() && it->id == id);
+    auto get_id = [](EntityData d) { return d.id; };
+    return entity_ids_.find(id, get_id);
   }
 
   auto find_id(EntityId id) const {
-    auto pred = [](EntityData d, EntityId id) { return d.id < id; };
-    auto it = lower_bound(entity_ids_, id, pred);
-    return std::tuple(it, it != entity_ids_.end() && it->id == id);
+    auto get_id = [](EntityData d) { return d.id; };
+    return entity_ids_.find(id, get_id);
   }
 
 public:
@@ -280,7 +280,7 @@ public:
         ++garbage_it;
       return (garbage_it != garbage_ids_.end() && id == *garbage_it);
     };
-    std::erase_if(get_store<U>(), pred);
+    get_store<U>().erase_if(pred);
   }
 
   void deleted_marked_ids() {
@@ -291,7 +291,7 @@ public:
         ++garbage_it;
       return (garbage_it != garbage_ids_.end() && data.id == *garbage_it);
     };
-    std::erase_if(entity_ids_, pred);
+    entity_ids_.erase_if(pred);
     (delete_marked_component<Components>(), ...);
     garbage_ids_.clear();
   }
@@ -414,30 +414,26 @@ public:
   template<typename...U>
   auto read_all() const {
     return ComponentRange(entity_ids_,
-                          std::tuple<const Store<U>&...>(get_store<U>()...));
+                          std::forward_as_tuple(get_store<U>()...));
   }
 
   template<typename...U>
   auto read_all() {
     return ComponentRange(entity_ids_,
-                          std::tuple<Store<U>&...>(get_store<U>()...));
+                          std::forward_as_tuple(get_store<U>()...));
   }
 
   bool has_entity(EntityId id) const {
-    auto it = std::lower_bound(entity_ids_.begin(), entity_ids_.end(), id);
-    return it != entity_ids_.end() && it->id == id;
+    return entity_ids_.contains(id, &EntityData::id);
   }
 
   template<typename U>
   void erase_component(EntityId id) {
-    auto [found, it] = find_component<U>(id);
-    if (found) get_store<U>().erase(it);
+    get_store<U>().find_erase(id, &ComponentData<U>::id);
   }
 
   void erase(EntityId id) {
     (erase_component<Components>(id), ...);
-    auto it = std::lower_bound(entity_ids_.begin(), entity_ids_.end(), id);
-    if (it == entity_ids_.end()) return;
-    entity_ids_.erase(it);
+    entity_ids_.find_erase(id, &EntityData::id);
   }
 };
