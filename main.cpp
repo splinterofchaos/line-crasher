@@ -26,7 +26,7 @@ constexpr int WINDOW_WIDTH = 800;
 constexpr auto TIME_STEP = std::chrono::milliseconds(1000) / (60 * 4);
 constexpr auto TIME_STEP_MS = TIME_STEP.count();
 
-constexpr float SHIP_MAX_SPEED = 0.04;
+constexpr float MAX_SPEED = 0.04;
 // The coefficient of negative acceleration proportionate to velocity.
 // Similar to air resistance + friction.
 constexpr float SHIP_RESISTENCE = 0.001f;
@@ -71,6 +71,23 @@ struct Transform {
   // TODO: this should really be in LineData. The question is how to properly
   // pipe it to the render code.
   float length;  // Used for lines in determining how long they are.
+};
+
+// All things that move through the world.
+struct Physics {
+  glm::vec3 a, v;
+  float rotation_velocity;
+
+  // TODO: This is a nice implicit Euler integration, but consider RK4.
+  // ref: https://gafferongames.com/post/integration_basics/#:~:text=Euler%20integration%20is%20the%20most,is%20constant%20over%20the%20timestep.&text=However%2C%20we%20are%20also%20integrating,error%20in%20the%20integrated%20position.
+  void integrate(Transform& t) {
+    t.rotation += rotation_velocity * TIME_STEP_MS;
+
+    v += a * float(TIME_STEP_MS);
+    if (glm::length(v) > MAX_SPEED) v = vec_resize(v, MAX_SPEED);
+
+    t.pos += v * float(TIME_STEP_MS);
+  }
 };
 
 // Represents the in-game understanding of user inputs.
@@ -282,7 +299,8 @@ std::chrono::milliseconds time_diff(
       new_time - old_time);
 }
 
-using Ecs = EntityComponentSystem<Transform, ShaderBindings*, Color, LineData>;
+using Ecs = EntityComponentSystem<Transform, Physics, ShaderBindings*, Color,
+                                  LineData>;
 
 class TrackGenerator {
   glm::vec3 start_;
@@ -472,6 +490,7 @@ Error run() {
       !e.ok) return e;
 
   auto player = ecs.write_new_entity(Transform{glm::vec3(0.0f), 0, 0},
+                                     Physics{glm::vec3(), glm::vec3(), 0},
                                      Color{glm::vec3()},  // unused
                                      &player_shader_bindings);
 
@@ -494,7 +513,6 @@ Error run() {
 
   // TODO: These should eventually be stored into components, too.
   ShipController ship_controller;
-  glm::vec3 ship_velocity(0.f);
   // The acceleration the ship always has in the direction it faces.
   float ship_thrust = 0;
   std::size_t ship_gear = 0;
@@ -547,7 +565,10 @@ Error run() {
     while (time_diff(last_physics_update, new_time) > TIME_STEP) {
       last_physics_update += TIME_STEP;
 
-      float ship_rotation_vel = 0;
+      Transform& ship_transform = ecs.read_or_panic<Transform>(player);
+      Physics& ship_physics = ecs.read_or_panic<Physics>(player);
+
+      ship_physics.rotation_velocity = 0;
       if (manual_thrusters_enabled) {
         if (ship_controller.thruster) ship_thrust += SHIP_TRUST;
         if (ship_controller.breaks)
@@ -556,47 +577,35 @@ Error run() {
         ship_thrust = GEARS[ship_gear].thrust;
       }
       if (ship_controller.rotate_clockwise)
-        ship_rotation_vel -= SHIP_ROTATE_SPEED;
+        ship_physics.rotation_velocity -= SHIP_ROTATE_SPEED;
       if (ship_controller.rotate_counterclockwise)
-        ship_rotation_vel += SHIP_ROTATE_SPEED;
+        ship_physics.rotation_velocity += SHIP_ROTATE_SPEED;
 
-      // TODO: This is a nice implicit Euler integration, but consider RK4.
-      // ref: https://gafferongames.com/post/integration_basics/#:~:text=Euler%20integration%20is%20the%20most,is%20constant%20over%20the%20timestep.&text=However%2C%20we%20are%20also%20integrating,error%20in%20the%20integrated%20position.
-      Transform& ship_transform = ecs.read_or_panic<Transform>(player);
-
-      ship_transform.rotation += ship_rotation_vel * TIME_STEP_MS;
-      ship_rotation_vel = 0;
-
-      glm::vec3 heading = radial_vec(ship_transform.rotation);
-
-      glm::vec3 a(0);
+      ship_physics.a = glm::vec3();
       if (ship_thrust != 0)
-        a = radial_vec(ship_transform.rotation, ship_thrust);
-      if (glm::length(ship_velocity)) {
-        a += vec_resize(clockwize(ship_velocity),
-                        -cross2(heading, ship_velocity) * SHIP_SIDE_THRUST);
+        ship_physics.a = radial_vec(ship_transform.rotation, ship_thrust);
+      if (glm::length(ship_physics.v)) {
+        glm::vec3 heading = radial_vec(ship_transform.rotation);
+        ship_physics.a += vec_resize(
+            clockwize(ship_physics.v),
+            -cross2(heading, ship_physics.v) * SHIP_SIDE_THRUST);
       }
 
-      a -= ship_velocity * SHIP_RESISTENCE;
+      ship_physics.a -= ship_physics.v * SHIP_RESISTENCE;
+      ship_physics.integrate(ship_transform);
+      ship_physics.rotation_velocity = 0;
 
-      ship_velocity += a * float(TIME_STEP_MS);
-      if (glm::length(ship_velocity) > SHIP_MAX_SPEED)
-        ship_velocity = vec_resize(ship_velocity, SHIP_MAX_SPEED);
-
-      ship_transform.pos += ship_velocity * float(TIME_STEP_MS);
-
-      std::cout << "|v| = " << glm::length(ship_velocity) << std::endl;
+      std::cout << "|v| = " << glm::length(ship_physics.v) << std::endl;
       std::cout << "thrust = " << ship_thrust << std::endl;
 
-      camera_offset = ship_velocity;
       // TODO: This isn't very intelligent. If the offset factor is too large,
       // the player will be off screen and if too small, overly centered.
-      camera_offset *= 500.f / TIME_STEP_MS;
-      camera_offset += ship_transform.pos;
+      camera_offset = ship_transform.pos +
+                      ship_physics.v * (500.f / TIME_STEP_MS);
 
       zoom = 0.25f;
-      if (glm::length(ship_velocity) > 0.001)
-        zoom -= std::log(glm::length(ship_velocity) * 1000) * 0.06;
+      if (glm::length(ship_physics.v) > 0.001)
+        zoom -= std::log(glm::length(ship_physics.v) * 1000) * 0.06;
 
       ShipPoints ship_points(ship_transform);
       for (const auto& [id, line_transform, line_data] :
