@@ -201,7 +201,7 @@ Error construct_line_shader(GlProgram& line_shader_program) {
     uniform vec3 color;
     out vec4 FragColor;
     void main() {
-      FragColor = vec4(color, 1);
+      FragColor = vec4(color, 0.5);
     }
   )");
   if (Error e = frag.compile(); !e.ok) return e;
