@@ -197,7 +197,9 @@ constexpr std::array GEARS{
   Gear{2.300e-05, {0.2, 0.3, 0.8}},
   Gear{2.500e-05, {0.3, 0.4, 0.8}},
   Gear{2.580e-05, {0.4, 0.4, 0.9}},
-  Gear{3.000e-05, {0.5, 0.5, 1.0}}
+  Gear{3.000e-05, {0.5, 0.5, 1.0}},
+  Gear{3.500e-05, {0.6, 0.6, 1.0}},
+  Gear{4.000e-05, {1.0, 1.0, 1.0}}
 };
 
 struct LineData {
@@ -289,25 +291,25 @@ class TrackGenerator {
   float heading_ = 0;  // The direction of the track.
   ShaderBindings* shader_bindings_;
   std::size_t current_gear_ = 0;
-  float track_width_ = SHIP_HALF_WIDTH * 2 * 10;
+  float track_width_ = SHIP_HALF_WIDTH * 2 * 3;
 
   enum DifficultyIncreaseReason { GEAR_UP, NARROW_TRACK };
 
   unsigned int planks_destroyed_ = 0;
-  unsigned int difficulty_increase_at_ = 100;
+  unsigned int difficulty_increase_at_ = 200;
   DifficultyIncreaseReason difficulty_increase_reason_ = GEAR_UP;
 
   // The spacing between different segments of road.
   constexpr static float SPACING = 1.f;
-  constexpr static float MAX_WIDTH = 10;
-  constexpr static float MIN_WIDTH = 1;
+  constexpr static float MAX_WIDTH = SHIP_HALF_WIDTH * 2 * 10;
+  constexpr static float MIN_WIDTH = SHIP_HALF_WIDTH * 2 * 3;
   constexpr static float WIDTH_CHANGE = 4;
 
 public:
   enum Strategy {
     LONG_STRAIGHT,
     CIRCULAR_CURVE,
-    NARROW,
+    CHANGE_WIDTH,
     N_STRAGEGIES
   };
 
@@ -349,8 +351,8 @@ float smooth_width(float old_width, float new_width,
 void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
   switch (strat) {
     case TrackGenerator::LONG_STRAIGHT: {
-      static constexpr int LENGTH = 20;
-      for (unsigned int i = 0; i < 20; ++i) {
+      static constexpr int LENGTH = 10;
+      for (unsigned int i = 0; i < LENGTH; ++i) {
         const float width = smooth_width(track_width_, track_width_ * 1.25,
                                          i, LENGTH / 2);
         write_plank(ecs, width);
@@ -358,9 +360,14 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
       }
       break;
     }
-    case TrackGenerator::NARROW: {
-      static constexpr float diff = -2;
+    case TrackGenerator::CHANGE_WIDTH: {
       static constexpr int LENGTH = 10;
+      float diff = WIDTH_CHANGE;
+      if (track_width_ + diff >= MAX_WIDTH ||
+          (track_width_ - WIDTH_CHANGE > MIN_WIDTH &&
+           random_bool(random_gen))) {
+        diff = -diff;
+      }
       const float new_track_width = track_width_ + diff;
       if (new_track_width < MIN_WIDTH) break;
       for (unsigned int i = 0; i < LENGTH; ++i) {
@@ -375,8 +382,8 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
       float gear_turn_ratio = (current_gear_ + 1) * 0.5;
       float radius = random_int(
           random_gen,
-          std::max(track_width_ * 2, track_width_ * gear_turn_ratio),
-          track_width_ * 5 * gear_turn_ratio);
+          std::max(track_width_ * 1.5f, track_width_ * gear_turn_ratio),
+          track_width_ * 5);
       int dir = random_bool(random_gen) ? 1 : -1;
       // Each turn should have an angle of between 45 and 90 degrees.
       auto angle =
@@ -406,18 +413,12 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
 
 void TrackGenerator::write_track(Ecs& ecs) {
   Strategy strat = LONG_STRAIGHT;
-  if (planks_destroyed_ < difficulty_increase_at_) {
-    strat = random_bool(random_gen) ? LONG_STRAIGHT : CIRCULAR_CURVE;
+  if (planks_destroyed_ >= difficulty_increase_at_) {
+    if (current_gear_ + 1 < GEARS.size()) ++current_gear_;
+    difficulty_increase_at_ *= 2.5;
+
   } else {
-    switch (difficulty_increase_reason_) {
-      case GEAR_UP: strat = NARROW;
-                    difficulty_increase_reason_ = NARROW_TRACK;
-                    break;
-      case NARROW_TRACK: if (current_gear_ + 1 < GEARS.size()) ++current_gear_;
-                         difficulty_increase_reason_ = GEAR_UP;
-                         break;
-    }
-    difficulty_increase_at_ *= 1.75;
+    strat = Strategy(random_int(random_gen, N_STRAGEGIES));
   }
   write_track(ecs, strat);
 }
