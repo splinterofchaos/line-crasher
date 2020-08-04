@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <tuple>
 
 // === tuple utils ===
@@ -58,3 +59,14 @@ std::string concat_strings(const StrLike&...s) {
   return concat_strings(std::string(), s...);
 }
 
+template<typename Container, typename T, typename F = std::less<>>
+typename Container::iterator lower_bound(Container& c, const T& t,
+                                         F&& f = F()) {
+  return std::lower_bound(c.begin(), c.end(), t, std::forward<F>(f));
+}
+
+template<typename Container, typename T, typename F = std::less<>>
+typename Container::const_iterator lower_bound(const Container& c, const T& t,
+                                               F&& f = F()) {
+  return std::lower_bound(c.begin(), c.end(), t, std::forward<F>(f));
+}

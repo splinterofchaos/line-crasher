@@ -24,4 +24,14 @@ int main() {
       int sum = 0;
       for (auto [id, i, u] : const_iu.read_all<int, unsigned>()) sum += i + u,
       sum, 4);
+
+  EntityComponentSystem<int, unsigned> iu2;
+  TEST_WITH(
+      iu2.write_new_entity(1, 1u);
+      iu2.write_new_entity(1, 1u);
+      auto id = iu2.write_new_entity(1, 1u);
+      iu2.deactivate(id);  // This is now ignored.
+      int sum = 0;
+      for (auto [id, i, u] : iu2.read_all<int, unsigned>()) sum += i + u,
+      sum, 4);
 }

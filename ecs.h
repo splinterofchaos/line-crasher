@@ -25,6 +25,16 @@ constexpr bool operator < (EntityId a, EntityId b) { return a.id < b.id; }
 constexpr bool operator == (EntityId a, EntityId b) { return a.id == b.id; }
 constexpr bool operator != (EntityId a, EntityId b) { return a.id != b.id; }
 
+// In the ECS, an entity can be deactivated and it will generally be skipped.
+struct EntityData {
+  EntityId id;
+  bool active = true;
+};
+
+constexpr bool operator < (EntityData a, EntityData b) { return a.id < b.id; }
+constexpr bool operator == (EntityData a, EntityData b) { return a.id == b.id; }
+constexpr bool operator != (EntityData a, EntityData b) { return a.id != b.id; }
+
 // Each component is stored with a pointer to its entity and some data.
 template<typename T>
 struct ComponentData {
@@ -43,17 +53,16 @@ using Store = std::vector<ComponentData<T>>;
 // lazily over in a range-based for loop.
 template<typename StoreTuple>
 class ComponentRange {
+  const std::vector<EntityData>& ids_;
   StoreTuple stores_;
 
 protected:
-  template<typename IteratorTuple>
+  template<typename EntityIdIterator, typename IteratorTuple>
   struct Iterator {
+    EntityIdIterator entity_iterator;
+    EntityIdIterator entity_iterator_end;
     IteratorTuple its;
     IteratorTuple ends;
-
-    // To know if all iterators are pointing to the same entity, we'll neet
-    // to remember what entity that is.
-    EntityId max_id;
 
     bool sentinel = false;
 
@@ -65,6 +74,7 @@ protected:
     // std::get<std::decay_t<decltype(it)>>(ends).
 
     bool any_at_end() const {
+      if (entity_iterator == entity_iterator_end) return true;
       auto any = [](auto...args) { return (args || ...); };
       auto pred = [this](const auto& it) { return at_end(it); };
       return std::apply(any, tuple_map(pred, its));
@@ -74,20 +84,27 @@ protected:
     bool all_same() const {
       auto all = [](auto...args) { return (args && ...); };
       auto equals_max_id =
-        [this](const auto& it) { return it->id == max_id; };
+        [this](const auto& it) { return it->id == entity_iterator->id; };
       return std::apply(all, tuple_map(equals_max_id, its));
+    }
+
+    template<typename Iter>
+    void catch_up_entity_iter(const Iter& it) {
+      while (entity_iterator != entity_iterator_end &&
+             (!entity_iterator->active || entity_iterator->id < it->id))
+        ++entity_iterator;
     }
 
     template<typename Iter>
     void increment_iter(Iter& it) {
       if (!at_end(it)) ++it;
-      if (!at_end(it)) max_id = std::max(it->id, max_id);
+      if (!at_end(it)) catch_up_entity_iter(it);
     }
 
     // A helper to catch up iterators that are behind.
     void increment_if_lower_than_max_id() {
       auto impl = [&](auto& it) {
-        if (!at_end(it) && it->id < max_id) increment_iter(it);
+        if (!at_end(it) && it->id < entity_iterator->id) increment_iter(it);
       };
       tuple_foreach(impl, its);
     }
@@ -114,13 +131,12 @@ protected:
       return old;
     }
 
-    Iterator(IteratorTuple its, IteratorTuple ends)
-      : its(std::move(its)), ends(std::move(ends)) {
-        max_id = EntityId{0};
-        tuple_foreach(
-            [&](auto it) {
-              if (!at_end(it)) max_id = std::max(max_id, it->id);
-            }, its);
+    Iterator(EntityIdIterator it, EntityIdIterator end,
+             IteratorTuple its, IteratorTuple ends)
+      : entity_iterator(it), entity_iterator_end(end),
+        its(std::move(its)), ends(std::move(ends)) {
+        if (!any_at_end())
+          tuple_foreach([&](auto it) { catch_up_entity_iter(it); }, its);
         catch_up();  // Ensure a valid initial starting position.
       }
 
@@ -135,18 +151,20 @@ protected:
 
     auto operator*() const {
       auto data = [](const auto& it) -> auto& { return it->data; };
-      return std::tuple_cat(std::tuple(max_id), tuple_map_forward(data, its));
+      return std::tuple_cat(std::tuple(entity_iterator->id),
+                            tuple_map_forward(data, its));
     }
   };
 
 public:
-  explicit ComponentRange(StoreTuple stores)
-    : stores_(stores) { }
+  explicit ComponentRange(const std::vector<EntityData>& ids, StoreTuple stores)
+    : ids_(ids), stores_(stores) { }
 
   auto begin() const {
     auto b = [](auto&& store) { return store.begin(); };
     auto e = [](auto&& store) { return store.end(); };
-    return Iterator(tuple_map(b, stores_), tuple_map(e, stores_));
+    return Iterator(ids_.begin(), ids_.end(),
+                    tuple_map(b, stores_), tuple_map(e, stores_));
   }
 
   auto end() const {
@@ -158,9 +176,10 @@ public:
 // store no data. No two components may be of the same type.
 template<typename...Components>
 class EntityComponentSystem {
+
   // The series of ID's will be contiguously stored (frequently iterated
   // through) and manually sorted.
-  std::vector<EntityId> entity_ids_;
+  std::vector<EntityData> entity_ids_;
 
   // Entities to be deleted.
   std::vector<EntityId> garbage_ids_;
@@ -209,13 +228,38 @@ class EntityComponentSystem {
     return this;
   }
 
-  public:
+  auto find_id(EntityId id) {
+    auto pred = [](EntityData d, EntityId id) { return d.id < id; };
+    auto it = lower_bound(entity_ids_, id, pred);
+    return std::tuple(it, it != entity_ids_.end() && it->id == id);
+  }
+
+  auto find_id(EntityId id) const {
+    auto pred = [](EntityData d, EntityId id) { return d.id < id; };
+    auto it = lower_bound(entity_ids_, id, pred);
+    return std::tuple(it, it != entity_ids_.end() && it->id == id);
+  }
+
+public:
   EntityComponentSystem() = default;
 
   EntityId new_entity() {
-    entity_ids_.push_back(next_id_);
+    entity_ids_.push_back({next_id_, true});
     next_id_.id++;
-    return entity_ids_.back();
+    return entity_ids_.back().id;
+  }
+
+  void deactivate(EntityId id) {
+    if (auto [it, found] = find_id(id); found) it->active = false;
+  }
+
+  void activate(EntityId id) {
+    if (auto [it, found] = find_id(id); found) it->active = true;
+  }
+
+  bool is_active(EntityId id) {
+    auto [it, found] = find_id(id);
+    return found && it->active;
   }
 
   void mark_to_delete(EntityId id) {
@@ -242,17 +286,17 @@ class EntityComponentSystem {
   void deleted_marked_ids() {
     std::sort(garbage_ids_.begin(), garbage_ids_.end());
     auto garbage_it = garbage_ids_.begin();
-    auto pred = [&](const EntityId id) {
-      while (garbage_it != garbage_ids_.end() && *garbage_it < id)
+    auto pred = [&](const EntityData data) {
+      while (garbage_it != garbage_ids_.end() && *garbage_it < data.id)
         ++garbage_it;
-      return (garbage_it != garbage_ids_.end() && id == *garbage_it);
+      return (garbage_it != garbage_ids_.end() && data.id == *garbage_it);
     };
     std::erase_if(entity_ids_, pred);
     (delete_marked_component<Components>(), ...);
     garbage_ids_.clear();
   }
 
-  enum WriteAction { CREATE_ENTRY, CREATE_OR_UPDATE };
+  enum WriteAction { CREATE_ENTRY, CREATE_OR_UPDATE, UPDATE_ONLY };
 
   template<typename T, typename...U>
   static constexpr bool any_is() { return (std::is_same_v<T, U> || ...); }
@@ -266,13 +310,20 @@ class EntityComponentSystem {
   // granted.
   template<typename T>
   EcsError write(EntityId id, T data,
-                 WriteAction action = WriteAction::CREATE_ENTRY) {
+                 WriteAction action = WriteAction::UPDATE_ONLY) {
     assert_has_type<T>();
     auto [found, insert] = find_component<T>(id);
     if (found && insert->id == id && action == WriteAction::CREATE_ENTRY) {
       return EcsError::ALREADY_EXISTS;
     }
-    emplace_at(id, insert, std::move(data));
+    if (!found && action == WriteAction::UPDATE_ONLY) {
+      return EcsError::NOT_FOUND;
+    }
+    if (!found) {
+      emplace_at(id, insert, std::move(data));
+    } else {
+      insert->data = std::move(data);
+    }
     return EcsError::OK;
   }
 
@@ -288,7 +339,8 @@ class EntityComponentSystem {
   template<typename...T>
   EntityId write_new_entity(T...components) {
     EntityId id = new_entity();
-    write(id, std::move(components)...);
+    // TODO: Check for errors. Should only matter on ID overflow.
+    (write(id, std::move(components), WriteAction::CREATE_ENTRY), ...);
     return id;
   }
 
@@ -361,17 +413,19 @@ class EntityComponentSystem {
 
   template<typename...U>
   auto read_all() const {
-    return ComponentRange(std::tuple<const Store<U>&...>(get_store<U>()...));
+    return ComponentRange(entity_ids_,
+                          std::tuple<const Store<U>&...>(get_store<U>()...));
   }
 
   template<typename...U>
   auto read_all() {
-    return ComponentRange(std::tuple<Store<U>&...>(get_store<U>()...));
+    return ComponentRange(entity_ids_,
+                          std::tuple<Store<U>&...>(get_store<U>()...));
   }
 
   bool has_entity(EntityId id) const {
     auto it = std::lower_bound(entity_ids_.begin(), entity_ids_.end(), id);
-    return it != entity_ids_.end() && *it == id;
+    return it != entity_ids_.end() && it->id == id;
   }
 
   template<typename U>
