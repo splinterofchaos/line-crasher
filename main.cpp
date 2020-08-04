@@ -455,7 +455,7 @@ void write_broken_plank(
     const Color& color,
     const std::chrono::high_resolution_clock::time_point& now) {
   // Rotate clockwise (-1) or counter clockwise?
-  int dir = glm::sign(cross2(b - a, incoming_velocity));
+  float dir = glm::sign(cross2(b - a, incoming_velocity));
   // If 100% of linear velocity were converted into rotational velocity at the
   // point of intersection, we would have
   //    v = X * r
@@ -464,11 +464,13 @@ void write_broken_plank(
   float rotational_vel = glm::length(incoming_velocity) * 0.5f /
     (plank_transform.length * u * 0.5f) *  // <- actual radius
     dir;
+  glm::vec3 v = incoming_velocity * 0.3f +
+                clockwize(incoming_velocity) * 0.2f * dir;
   ecs.write_new_entity(
       Transform{(a + b) / 2.f,
                 plank_transform.rotation,
                 plank_transform.length * u},
-      Physics{glm::vec3(), incoming_velocity / 2.f, rotational_vel},
+      Physics{glm::vec3(), v, rotational_vel},
       TimeToDie{now + BROKEN_PLANK_LIFETIME},
       &shader_bindings,
       Color(color));
