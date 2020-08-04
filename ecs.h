@@ -254,11 +254,20 @@ class EntityComponentSystem {
 
   enum WriteAction { CREATE_ENTRY, CREATE_OR_UPDATE };
 
+  template<typename T, typename...U>
+  static constexpr bool any_is() { return (std::is_same_v<T, U> || ...); }
+
+  template<typename T>
+  static constexpr void assert_has_type() {
+    static_assert(any_is<T, Components...>());
+  }
+
   // Adds data to a component, although that the entity exists is taken for
   // granted.
   template<typename T>
   EcsError write(EntityId id, T data,
                  WriteAction action = WriteAction::CREATE_ENTRY) {
+    assert_has_type<T>();
     auto [found, insert] = find_component<T>(id);
     if (found && insert->id == id && action == WriteAction::CREATE_ENTRY) {
       return EcsError::ALREADY_EXISTS;
