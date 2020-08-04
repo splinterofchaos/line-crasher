@@ -130,11 +130,14 @@ struct LinePoints {
 
 // Check if the line segment, [a, b], intersects either side of the ship. Since
 // it can't go backwards, we don't need to check the back side.
-bool has_intersection(const ShipPoints& ship_points,
-                      const LinePoints& line_points) {
-  return segment_segment_intersection(ship_points.left_back, ship_points.nose,
-                                      line_points.a, line_points.b) ||
-         segment_segment_intersection(ship_points.right_back, ship_points.nose,
+std::pair<float, bool> intersection(const ShipPoints& ship_points,
+                                    const LinePoints& line_points) {
+  if (auto [u, has_intersection] = segment_segment_intersection(
+          ship_points.left_back, ship_points.nose,
+          line_points.a, line_points.b);
+      has_intersection)
+    return {u, has_intersection};
+  return segment_segment_intersection(ship_points.right_back, ship_points.nose,
                                       line_points.a, line_points.b);
 }
 
@@ -592,7 +595,12 @@ Error run() {
       }
 
       ship_physics.a -= ship_physics.v * SHIP_RESISTENCE;
-      ship_physics.integrate(ship_transform);
+
+      //for (auto& [_, t, phys] : ecs.read_all<Transform, Physics>())
+      auto range = ecs.read_all<Transform, Physics>();
+      for (auto it = std::begin(range); it != std::end(range); ++it)
+        std::get<Physics&>(*it).integrate(std::get<Transform&>(*it));
+
       ship_physics.rotation_velocity = 0;
 
       std::cout << "|v| = " << glm::length(ship_physics.v) << std::endl;
@@ -608,15 +616,46 @@ Error run() {
         zoom -= std::log(glm::length(ship_physics.v) * 1000) * 0.06;
 
       ShipPoints ship_points(ship_transform);
-      for (const auto& [id, line_transform, line_data] :
-           ecs.read_all<Transform, LineData>()) {
+      for (const auto& [id, line_transform, line_data, color] :
+           ecs.read_all<Transform, LineData, Color>()) {
         // Bounds check first.
         if (glm::distance(line_transform.pos, ship_points.center_of_gravity) <
-            line_transform.length + SHIP_LENGTH) {
-          if (has_intersection(ship_points, LinePoints(line_transform))) {
+            line_transform.length + SHIP_LENGTH &&
+            !ecs.is_marked(id)) {
+          LinePoints line_points(line_transform);
+          if (auto [u, intersects] = intersection(ship_points, line_points);
+              intersects) {
             manual_thrusters_enabled = false;
             ecs.mark_to_delete(id);
             ship_gear = line_data.gear;
+
+            glm::vec3 ab = line_points.b - line_points.a;
+
+            // If 100% of linear velocity were converted into rotational
+            // velocity at the point of intersection, we would have
+            //    v = X * r
+            // where X is radians over time. If r is small, X is large; if r is
+            // large, X is small.
+            float rotation_a = glm::length(ship_physics.v) * 0.5 /
+                               (line_transform.length * u * 0.5);
+            float rotation_b = -glm::length(ship_physics.v) * 0.5 /
+                               (line_transform.length * (1 - u) * 0.5);
+
+            ecs.write_new_entity(
+                Transform{line_points.a + ab * u * 0.5f,
+                          line_transform.rotation,
+                          line_transform.length * u},
+                Physics{glm::vec3(), ship_physics.v / 2.f, rotation_a},
+                &line_shader_bindings,
+                Color(color));
+
+            ecs.write_new_entity(
+                Transform{line_points.b - ab * (1 - u) * 0.5f,
+                          line_transform.rotation + glm::pi<float>(),
+                          line_transform.length * (1 - u)},
+                Physics{glm::vec3(), ship_physics.v / 2.f, rotation_b},
+                &line_shader_bindings,
+                Color(color));
             break;
           }
         }
@@ -653,3 +692,4 @@ int main() {
   }
   return 0;
 }
+

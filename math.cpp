@@ -32,14 +32,14 @@ float cross2(const glm::vec3& a, const glm::vec3& b) {
 }
 
 // Thanks to https://stackoverflow.com/questions/563198/how-do-you-detect-where-two-line-segments-intersect
-bool segment_segment_intersection(glm::vec3 p1, glm::vec3 p2,
-                                  glm::vec3 q1, glm::vec3 q2) {
+std::pair<float, bool> segment_segment_intersection(
+    glm::vec3 p1, glm::vec3 p2, glm::vec3 q1, glm::vec3 q2) {
   glm::vec3 r = p2 - p1;
   glm::vec3 s = q2 - q1;
-  if (cross2(r, s) == 0) return false;
+  if (cross2(r, s) == 0) return {0, false};
   float t = cross2(q1 - p1, s) / cross2(r, s);
   float u = cross2(p1 - q1, r) / cross2(s, r);
-  return 0 < t && t < 1 && 0 < u && u < 1;
+  return {u, 0 < t && t < 1 && 0 < u && u < 1};
 }
 
 glm::vec3 radial_vec(float radians, float length) {

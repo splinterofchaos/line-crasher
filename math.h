@@ -35,7 +35,7 @@ inline auto plus_minus(T init, T operand) {
   return std::tuple(init + operand, init - operand);
 }
 
-bool segment_segment_intersection(glm::vec3 p1, glm::vec3 p2,
-                                  glm::vec3 q1, glm::vec3 q2);
+std::pair<float, bool> segment_segment_intersection(
+    glm::vec3 p1, glm::vec3 p2, glm::vec3 q1, glm::vec3 q2);
 
 
