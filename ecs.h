@@ -135,7 +135,7 @@ protected:
 
     auto operator*() const {
       auto data = [](const auto& it) -> auto& { return it->data; };
-      return std::tuple_cat(std::tuple(max_id), tuple_map(data, its));
+      return std::tuple_cat(std::tuple(max_id), tuple_map_forward(data, its));
     }
   };
 
@@ -220,6 +220,10 @@ class EntityComponentSystem {
 
   void mark_to_delete(EntityId id) {
     garbage_ids_.push_back(id);
+  }
+
+  bool is_marked(EntityId id) {
+    return std::binary_search(garbage_ids_.begin(), garbage_ids_.end(), id);
   }
 
   template<typename U>

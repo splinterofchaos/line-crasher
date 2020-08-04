@@ -14,6 +14,16 @@ auto tuple_map(F&& f, std::tuple<T...>& t) {
 }
 
 template<typename F, typename...T>
+constexpr auto tuple_map_forward(F&& f, const std::tuple<T...>& t) {
+  return std::forward_as_tuple(f(std::get<T>(t))...);
+}
+
+template<typename F, typename...T>
+auto tuple_map_forward(F&& f, std::tuple<T...>& t) {
+  return std::forward_as_tuple(f(std::get<T>(t))...);
+}
+
+template<typename F, typename...T>
 constexpr void tuple_foreach(F&& f, const std::tuple<T...>& t) {
   (f(std::get<T>(t)), ...);
 }
