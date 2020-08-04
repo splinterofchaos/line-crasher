@@ -220,6 +220,7 @@ class EntityComponentSystem {
 
   void mark_to_delete(EntityId id) {
     garbage_ids_.push_back(id);
+    std::sort(garbage_ids_.begin(), garbage_ids_.end());
   }
 
   bool is_marked(EntityId id) {

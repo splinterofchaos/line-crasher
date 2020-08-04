@@ -26,6 +26,8 @@ constexpr int WINDOW_WIDTH = 800;
 constexpr auto TIME_STEP = std::chrono::milliseconds(1000) / (60 * 4);
 constexpr auto TIME_STEP_MS = TIME_STEP.count();
 
+constexpr auto BROKEN_PLANK_LIFETIME = std::chrono::seconds(2);
+
 constexpr float MAX_SPEED = 0.04;
 // The coefficient of negative acceleration proportionate to velocity.
 // Similar to air resistance + friction.
@@ -88,6 +90,10 @@ struct Physics {
 
     t.pos += v * float(TIME_STEP_MS);
   }
+};
+
+struct TimeToDie {
+  std::chrono::high_resolution_clock::time_point time_to_die;
 };
 
 // Represents the in-game understanding of user inputs.
@@ -302,7 +308,8 @@ std::chrono::milliseconds time_diff(
       new_time - old_time);
 }
 
-using Ecs = EntityComponentSystem<Transform, Physics, ShaderBindings*, Color,
+using Ecs = EntityComponentSystem<Transform, Physics, TimeToDie,
+                                  ShaderBindings*, Color,
                                   LineData>;
 
 class TrackGenerator {
@@ -596,10 +603,8 @@ Error run() {
 
       ship_physics.a -= ship_physics.v * SHIP_RESISTENCE;
 
-      //for (auto& [_, t, phys] : ecs.read_all<Transform, Physics>())
-      auto range = ecs.read_all<Transform, Physics>();
-      for (auto it = std::begin(range); it != std::end(range); ++it)
-        std::get<Physics&>(*it).integrate(std::get<Transform&>(*it));
+      for (auto [_, t, phys] : ecs.read_all<Transform, Physics>())
+        phys.integrate(t);
 
       ship_physics.rotation_velocity = 0;
 
@@ -646,6 +651,7 @@ Error run() {
                           line_transform.rotation,
                           line_transform.length * u},
                 Physics{glm::vec3(), ship_physics.v / 2.f, rotation_a},
+                TimeToDie{last_physics_update + BROKEN_PLANK_LIFETIME},
                 &line_shader_bindings,
                 Color(color));
 
@@ -654,6 +660,7 @@ Error run() {
                           line_transform.rotation + glm::pi<float>(),
                           line_transform.length * (1 - u)},
                 Physics{glm::vec3(), ship_physics.v / 2.f, rotation_b},
+                TimeToDie{last_physics_update + BROKEN_PLANK_LIFETIME},
                 &line_shader_bindings,
                 Color(color));
             break;
@@ -668,6 +675,11 @@ Error run() {
       }
     }
 
+    time = new_time;
+
+    for (auto [id, ttd] : ecs.read_all<TimeToDie>())
+      if (ttd.time_to_die <= time) ecs.mark_to_delete(id);
+
     ecs.deleted_marked_ids();
 
     gl::clear();
@@ -678,8 +690,6 @@ Error run() {
     }
 
     gfx.swap_buffers();
-
-    time = new_time;
   }
 
   return Error();
