@@ -303,6 +303,7 @@ class TrackGenerator {
   constexpr static float SPACING = 1.f;
   constexpr static float MAX_WIDTH = SHIP_HALF_WIDTH * 2 * 10;
   constexpr static float MIN_WIDTH = SHIP_HALF_WIDTH * 2 * 1;
+  constexpr static float SAFE_WIDTH = MIN_WIDTH * 3;
 
 public:
   enum Strategy {
@@ -347,7 +348,9 @@ float smooth_width(float old_width, float new_width,
 }
 
 void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
-  const float new_track_width = random_int(random_gen, MIN_WIDTH, MAX_WIDTH);
+  // Disallow consecutive thin tracks to keep turns wider.
+  const float min_width = track_width_ < SAFE_WIDTH ? SAFE_WIDTH : MIN_WIDTH;
+  const float new_track_width = random_int(random_gen, min_width, MAX_WIDTH);
 
   switch (strat) {
     case TrackGenerator::CHANGE_WIDTH: {
