@@ -307,7 +307,6 @@ class TrackGenerator {
 
 public:
   enum Strategy {
-    LONG_STRAIGHT,
     CIRCULAR_CURVE,
     CHANGE_WIDTH,
     N_STRAGEGIES
@@ -350,18 +349,8 @@ float smooth_width(float old_width, float new_width,
 
 void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
   switch (strat) {
-    case TrackGenerator::LONG_STRAIGHT: {
-      static constexpr int LENGTH = 10;
-      for (unsigned int i = 0; i < LENGTH; ++i) {
-        const float width = smooth_width(track_width_, track_width_ * 1.25,
-                                         i, LENGTH / 2);
-        write_plank(ecs, width);
-        start_ += radial_vec(heading_, SPACING);
-      }
-      break;
-    }
     case TrackGenerator::CHANGE_WIDTH: {
-      static constexpr int LENGTH = 10;
+      static constexpr int LENGTH = 5;
       float diff = WIDTH_CHANGE;
       if (track_width_ + diff >= MAX_WIDTH ||
           (track_width_ - WIDTH_CHANGE > MIN_WIDTH &&
@@ -412,15 +401,12 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
 }
 
 void TrackGenerator::write_track(Ecs& ecs) {
-  Strategy strat = LONG_STRAIGHT;
   if (planks_destroyed_ >= difficulty_increase_at_) {
     if (current_gear_ + 1 < GEARS.size()) ++current_gear_;
     difficulty_increase_at_ *= 2.5;
 
-  } else {
-    strat = Strategy(random_int(random_gen, N_STRAGEGIES));
   }
-  write_track(ecs, strat);
+  write_track(ecs, Strategy(random_int(random_gen, N_STRAGEGIES)));
 }
 
 Error run() {
@@ -513,7 +499,7 @@ Error run() {
 
   // One should be roughly the width of the player ship.
   TrackGenerator track_gen(glm::vec3(1, 0, 0), &line_shader_bindings);
-  track_gen.write_track(ecs, TrackGenerator::LONG_STRAIGHT);
+  track_gen.write_track(ecs, TrackGenerator::CHANGE_WIDTH);
 
   // TODO: These should eventually be stored into components, too.
   ShipController ship_controller;
