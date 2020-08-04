@@ -302,7 +302,7 @@ class TrackGenerator {
   // The spacing between different segments of road.
   constexpr static float SPACING = 1.f;
   constexpr static float MAX_WIDTH = SHIP_HALF_WIDTH * 2 * 10;
-  constexpr static float MIN_WIDTH = SHIP_HALF_WIDTH * 2 * 3;
+  constexpr static float MIN_WIDTH = SHIP_HALF_WIDTH * 2 * 1;
   constexpr static float WIDTH_CHANGE = 4;
 
 public:
@@ -323,7 +323,7 @@ public:
   void write_track(Ecs& ecs, Strategy strat);
   void write_track(Ecs& ecs);
 
-  void write_plank(Ecs& ecs, float width);
+  void write_plank(Ecs& ecs, float rotation, float width);
 
   void delete_plank(Ecs& ecs, EntityId id) {
     planks_destroyed_++;
@@ -331,9 +331,9 @@ public:
   }
 };
 
-void TrackGenerator::write_plank(Ecs& ecs, float width) {
+void TrackGenerator::write_plank(Ecs& ecs, float rotation, float width) {
   ecs.write_new_entity(
-      Transform{start_, heading_ + glm::half_pi<float>(), width},
+      Transform{start_, rotation + glm::half_pi<float>(), width},
       shader_bindings_, Color{GEARS[current_gear_].color},
       LineData{current_gear_});
 }
@@ -348,31 +348,32 @@ float smooth_width(float old_width, float new_width,
 }
 
 void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
+  float width_diff = WIDTH_CHANGE;
+  if (track_width_ + width_diff >= MAX_WIDTH ||
+      (track_width_ - WIDTH_CHANGE > MIN_WIDTH &&
+       random_bool(random_gen))) {
+    width_diff = -width_diff;
+  }
+  const float new_track_width = track_width_ + width_diff;
+
   switch (strat) {
     case TrackGenerator::CHANGE_WIDTH: {
       static constexpr int LENGTH = 5;
-      float diff = WIDTH_CHANGE;
-      if (track_width_ + diff >= MAX_WIDTH ||
-          (track_width_ - WIDTH_CHANGE > MIN_WIDTH &&
-           random_bool(random_gen))) {
-        diff = -diff;
-      }
-      const float new_track_width = track_width_ + diff;
       if (new_track_width < MIN_WIDTH) break;
       for (unsigned int i = 0; i < LENGTH; ++i) {
-        write_plank(ecs,
+        write_plank(ecs, heading_,
                     smooth_width(track_width_, new_track_width, i, LENGTH));
         start_ += radial_vec(heading_, SPACING);
       }
-      track_width_ = new_track_width;
       break;
     }
     case TrackGenerator::CIRCULAR_CURVE: {
       float gear_turn_ratio = (current_gear_ + 1) * 0.5;
+      float larger_width = std::max(track_width_, new_track_width);
       float radius = random_int(
           random_gen,
-          std::max(track_width_ * 1.5f, track_width_ * gear_turn_ratio),
-          track_width_ * 5);
+          std::max(larger_width * 1.5f, larger_width * gear_turn_ratio),
+          larger_width * 5);
       int dir = random_bool(random_gen) ? 1 : -1;
       // Each turn should have an angle of between 45 and 90 degrees.
       auto angle =
@@ -382,15 +383,19 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
       glm::vec3 center = start_ +
         radial_vec(heading_ + glm::half_pi<float>() * dir, radius);
 
-      while (dir > 0 ? heading_ < new_heading : heading_ > new_heading) {
-        write_plank(ecs, track_width_);
         // We want to draw the next segment SPACING further into the curve. In
         // other words, we want an arc length of SPACING.
         //    arc length = r * theta.
         //    arc length / r = theta.
-        heading_ += (SPACING / radius) * dir;
+      float theta = (SPACING / radius) * dir;
+
+      const unsigned int LENGTH = (new_heading - heading_) / theta;
+      for (unsigned int i = 0; i < LENGTH; ++i) {
+        float rotation = heading_ + theta * (i + 1);
+        write_plank(ecs, rotation,
+                    smooth_width(track_width_, new_track_width, i, LENGTH));
         start_ = center + radial_vec(
-            heading_ - glm::half_pi<float>() * dir, radius);
+            rotation - glm::half_pi<float>() * dir, radius);
       }
       heading_ = new_heading;
       break;
@@ -398,6 +403,8 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
     case TrackGenerator::N_STRAGEGIES:
       std::cerr << "unhandled TrackGenerator::Strategy" << std::endl;
   }
+
+  track_width_ = new_track_width;
 }
 
 void TrackGenerator::write_track(Ecs& ecs) {
