@@ -314,6 +314,49 @@ using Ecs = EntityComponentSystem<Transform, Physics, TimeToDie,
                                   ShaderBindings*, Color,
                                   LineData>;
 
+// Please excuse the bad name. TODO: Make a better one.
+//
+// Maintains a free list of entities of a specific type. When that entity has
+// expired, instead of deleting it, this pool deactivates it. When an entity is
+// created, this pool can reactivate it with new parameters or create a new one
+// entirely.
+class EntityPool {
+  SortedVector<EntityId> free_list_;
+
+public:
+  EntityPool() { }
+
+  void deactivate(Ecs& ecs, EntityId id) {
+    free_list_.insert_if_not_present(id);
+    ecs.deactivate(id);
+  }
+
+  template<typename...Args>
+  void create_new(Ecs& ecs, Args&&...args) {
+    bool made_new = false;
+    if (free_list_.size()) {
+      EcsError e = ecs.write(free_list_.back(), std::forward<Args>(args)...);
+
+      if (e == EcsError::OK) {
+        ecs.activate(free_list_.back());
+        made_new = true;
+      } else if (e == EcsError::NOT_FOUND) {
+        std::cerr << "WARNING: We're holding onto ID's in our free list that "
+                     "may have been garbage collected." << std::endl;
+      } else {
+        std::cerr << "EntityPool: unhandled error on write." << std::endl;
+      }
+
+      free_list_.pop_back();
+    }
+
+    if (!made_new) {
+      auto id = ecs.write_new_entity(std::forward<Args>(args)...);
+      std::cout << "New entity id: " << id.id << std::endl;
+    }
+  }
+};
+
 class TrackGenerator {
   glm::vec3 start_;
   float heading_ = 0;  // The direction of the track.
@@ -326,6 +369,9 @@ class TrackGenerator {
   unsigned int planks_destroyed_ = 0;
   unsigned int difficulty_increase_at_ = 200;
   DifficultyIncreaseReason difficulty_increase_reason_ = GEAR_UP;
+
+  // Planks that have been consumed, available to be re-used.
+  EntityPool plank_pool_;
 
   // The spacing between different segments of road.
   constexpr static float SPACING = 1.f;
@@ -355,14 +401,16 @@ public:
 
   void delete_plank(Ecs& ecs, EntityId id) {
     planks_destroyed_++;
-    ecs.mark_to_delete(id);
+    plank_pool_.deactivate(ecs, id);
   }
 };
 
 void TrackGenerator::write_plank(Ecs& ecs, float rotation, float width) {
-  ecs.write_new_entity(
+  plank_pool_.create_new(
+      ecs,
       Transform{start_, rotation + glm::half_pi<float>(), width},
-      shader_bindings_, Color{GEARS[current_gear_].color},
+      shader_bindings_,
+      Color{GEARS[current_gear_].color},
       LineData{current_gear_});
 }
 
@@ -444,6 +492,7 @@ void TrackGenerator::write_track(Ecs& ecs) {
 // them to the ECS.
 void write_broken_plank(
     Ecs& ecs,
+    EntityPool& pool,
     // Between a and b, one point of the plank and where the intersection
     // happened.
     const glm::vec3& a,
@@ -466,7 +515,8 @@ void write_broken_plank(
     dir;
   glm::vec3 v = incoming_velocity * 0.3f +
                 clockwize(incoming_velocity) * 0.2f * dir;
-  ecs.write_new_entity(
+  pool.create_new(
+      ecs,
       Transform{(a + b) / 2.f,
                 plank_transform.rotation,
                 plank_transform.length * u},
@@ -590,6 +640,8 @@ Error run() {
   // TODO: make less linear.
   float zoom = 0.25f;
 
+  EntityPool broken_plank_pool;
+
   while (keep_going) {
     while (SDL_PollEvent(&e) != 0) {
       switch (e.type) {
@@ -681,10 +733,12 @@ Error run() {
 
             auto crash_point =
               line_points.a + (line_points.b - line_points.a) * u;
-            write_broken_plank(ecs, line_points.a, crash_point, u,
+            write_broken_plank(ecs, broken_plank_pool,
+                               line_points.a, crash_point, u,
                                line_transform, ship_physics.v,
                                line_shader_bindings, color, time);
-            write_broken_plank(ecs, line_points.b, crash_point, 1 - u,
+            write_broken_plank(ecs, broken_plank_pool,
+                               line_points.b, crash_point, 1 - u,
                                line_transform, ship_physics.v,
                                line_shader_bindings, color, time);
             break;
@@ -700,7 +754,7 @@ Error run() {
     time = new_time;
 
     for (auto [id, ttd] : ecs.read_all<TimeToDie>())
-      if (ttd.time_to_die <= time) ecs.mark_to_delete(id);
+      if (ttd.time_to_die <= time) broken_plank_pool.deactivate(ecs, id);
 
     ecs.deleted_marked_ids();
 
