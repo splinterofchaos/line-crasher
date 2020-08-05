@@ -366,6 +366,7 @@ class TrackGenerator {
 
   enum DifficultyIncreaseReason { GEAR_UP, NARROW_TRACK };
 
+  unsigned int plank_count_ = 0;
   unsigned int planks_destroyed_ = 0;
   unsigned int difficulty_increase_at_ = 200;
   DifficultyIncreaseReason difficulty_increase_reason_ = GEAR_UP;
@@ -387,6 +388,7 @@ public:
   constexpr static float MAX_WIDTH = SHIP_HALF_WIDTH * 2 * 10;
   constexpr static float MIN_WIDTH = SHIP_HALF_WIDTH * 2 * 1;
   constexpr static float SAFE_WIDTH = MIN_WIDTH * 3;
+  constexpr static unsigned int MAX_PLANKS = 200;
 
   enum Strategy {
     CIRCULAR_CURVE,
@@ -404,12 +406,11 @@ public:
 
   const glm::vec3& pos() { return head_.pos; }
 
-  void write_track(Ecs& ecs, Strategy strat);
-  void write_track(Ecs& ecs);
-
-  void write_plank(Ecs& ecs, float rotation, float width);
+  void set_strategy(Ecs& ecs, Strategy strat);
+  void extend_track(Ecs& ecs);
 
   void delete_plank(Ecs& ecs, EntityId id) {
+    plank_count_--;
     planks_destroyed_++;
     plank_pool_.deactivate(ecs, id);
   }
@@ -505,16 +506,7 @@ public:
       
 };
 
-void TrackGenerator::write_plank(Ecs& ecs, float rotation, float width) {
-  plank_pool_.create_new(
-      ecs,
-      Transform{head_.pos, rotation + glm::half_pi<float>(), width},
-      shader_bindings_,
-      Color{GEARS[current_gear_].color},
-      LineData{current_gear_});
-}
-
-void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
+void TrackGenerator::set_strategy(Ecs& ecs, Strategy strat) {
   // Disallow consecutive thin tracks to keep turns wider.
   const float min_width = head_.width < SAFE_WIDTH ? SAFE_WIDTH : MIN_WIDTH;
   const float new_track_width = random_int(random_gen, min_width, MAX_WIDTH);
@@ -538,21 +530,26 @@ void TrackGenerator::write_track(Ecs& ecs, Strategy strat) {
     case TrackGenerator::N_STRAGEGIES:
       std::cerr << "unhandled TrackGenerator::Strategy" << std::endl;
   }
-
-  write_track(ecs);
 }
 
-void TrackGenerator::write_track(Ecs& ecs) {
-  if (planks_destroyed_ >= difficulty_increase_at_) {
-    if (current_gear_ + 1 < GEARS.size()) ++current_gear_;
-    difficulty_increase_at_ *= 2.5;
+void TrackGenerator::extend_track(Ecs& ecs) {
+  for (; plank_count_ < MAX_PLANKS; ++plank_count_) {
+    if (planks_destroyed_ >= difficulty_increase_at_) {
+      if (current_gear_ + 1 < GEARS.size()) ++current_gear_;
+      difficulty_increase_at_ *= 2.5;
+    }
 
-  }
-  if (strategy_ && !strategy_->finished()) {
-    write_plank(ecs, head_.rotation, head_.width);
+    if (!strategy_ || strategy_->finished()) 
+      set_strategy(ecs, Strategy(random_int(random_gen, N_STRAGEGIES)));
+
+    plank_pool_.create_new(ecs,
+                           Transform{head_.pos,
+                                     head_.rotation + glm::half_pi<float>(),
+                                     head_.width},
+                           shader_bindings_,
+                           Color{GEARS[current_gear_].color},
+                           LineData{current_gear_});
     head_ = strategy_->next_plank();
-  } else {
-    write_track(ecs, Strategy(random_int(random_gen, N_STRAGEGIES)));
   }
 }
 
@@ -685,7 +682,7 @@ Error run() {
 
   // One should be roughly the width of the player ship.
   TrackGenerator track_gen(glm::vec3(1, 0, 0), &line_shader_bindings);
-  track_gen.write_track(ecs, TrackGenerator::CHANGE_WIDTH);
+  track_gen.set_strategy(ecs, TrackGenerator::CHANGE_WIDTH);
 
   // TODO: These should eventually be stored into components, too.
   ShipController ship_controller;
@@ -813,11 +810,9 @@ Error run() {
           }
         }
       }
-
-      if (glm::distance(track_gen.pos(), camera_offset) < 2.f / zoom) {
-        track_gen.write_track(ecs);
-      }
     }
+
+    track_gen.extend_track(ecs);
 
     time = new_time;
 
