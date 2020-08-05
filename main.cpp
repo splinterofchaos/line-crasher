@@ -35,7 +35,8 @@ constexpr float MAX_SPEED = 0.04;
 constexpr float SHIP_RESISTENCE = 0.001f;
 // The acceleration applied by side thrusters to keep the ship moving forward.
 constexpr float SHIP_SIDE_THRUST = 0.0005;
-constexpr float SHIP_TRUST = 0.0000001f;
+constexpr float SHIP_THRUST       = 0.0000002f;
+constexpr float SHIP_THRUST_DECAY = 0.000000075f;
 constexpr float SHIP_ROTATE_SPEED = 0.005;
 
 constexpr float SHIP_NOSE_LENGTH = 0.8f;
@@ -384,7 +385,7 @@ public:
   } head_;
 
   // The spacing between different segments of road.
-  constexpr static float SPACING = 1.f;
+  constexpr static float SPACING = 0.5f;
   constexpr static float MAX_WIDTH = SHIP_HALF_WIDTH * 2 * 10;
   constexpr static float MIN_WIDTH = SHIP_HALF_WIDTH * 2 * 1;
   constexpr static float SAFE_WIDTH = MIN_WIDTH * 3;
@@ -681,14 +682,13 @@ Error run() {
       !e.ok) return e;
 
   // One should be roughly the width of the player ship.
-  TrackGenerator track_gen(glm::vec3(1, 0, 0), &line_shader_bindings);
+  TrackGenerator track_gen(glm::vec3(3, 0, 0), &line_shader_bindings);
   track_gen.set_strategy(ecs, TrackGenerator::CHANGE_WIDTH);
 
   // TODO: These should eventually be stored into components, too.
   ShipController ship_controller;
   // The acceleration the ship always has in the direction it faces.
   float ship_thrust = 0;
-  std::size_t ship_gear = 0;
   // If true, the player may control their thrusters with up and down on the
   // arrow keys.
   bool manual_thrusters_enabled = true;
@@ -744,13 +744,13 @@ Error run() {
       Physics& ship_physics = ecs.read_or_panic<Physics>(player);
 
       ship_physics.rotation_velocity = 0;
+      ship_thrust -= SHIP_THRUST_DECAY;
       if (manual_thrusters_enabled) {
-        if (ship_controller.thruster) ship_thrust += SHIP_TRUST;
-        if (ship_controller.breaks)
-          ship_thrust = std::max(ship_thrust - SHIP_TRUST, 0.f);
-      } else {
-        ship_thrust = GEARS[ship_gear].thrust;
+        if (ship_controller.thruster) ship_thrust += SHIP_THRUST;
+        if (ship_controller.breaks) ship_thrust -= SHIP_THRUST;
       }
+      ship_thrust = std::max(ship_thrust, 0.f);
+
       if (ship_controller.rotate_clockwise)
         ship_physics.rotation_velocity -= SHIP_ROTATE_SPEED;
       if (ship_controller.rotate_counterclockwise)
@@ -794,7 +794,7 @@ Error run() {
               intersects) {
             manual_thrusters_enabled = false;
             track_gen.delete_plank(ecs, id);
-            ship_gear = line_data.gear;
+            ship_thrust = GEARS[line_data.gear].thrust;
 
             auto crash_point =
               line_points.a + (line_points.b - line_points.a) * u;
