@@ -13,12 +13,12 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
-#include <random>
 
 #include "ecs.h"
 #include "glpp.h"
 #include "graphics.h"
 #include "math.h"
+#include "random.h"
 
 constexpr int WINDOW_HEIGHT = 800;
 constexpr int WINDOW_WIDTH = 800;
@@ -44,26 +44,8 @@ constexpr float SHIP_TAIL_LENGTH = 0.2f;
 constexpr float SHIP_LENGTH = SHIP_NOSE_LENGTH + SHIP_TAIL_LENGTH;
 constexpr float SHIP_HALF_WIDTH = 0.5f;
 
-// Globals are bad, but random is good.
-std::random_device rd;
-std::mt19937 random_gen;
-
 std::ostream& operator<<(std::ostream& os, const glm::vec3 v) {
   return os << '<' << v.x << ", " << v.y << ", " << v.z << '>';
-}
-
-int random_int(std::mt19937& gen, int min, int max) {
-  auto distribution = std::uniform_int_distribution(min, max - 1);
-  return distribution(gen);
-}
-
-int random_int(std::mt19937& gen, int max) {
-  return random_int(gen, 0, max);
-}
-
-bool random_bool(std::mt19937& gen) {
-  auto distribution = std::uniform_int_distribution<int>(false, true);
-  return distribution(gen);
 }
 
 // All entities that can be rendered have a transform that describes their
@@ -474,7 +456,7 @@ public:
   TrackStrategyCircularCurve(TrackGenerator::Head pos, float exit_width,
                              float radius)
     : TrackGeneratorStrategy(pos, exit_width), radius_(radius) {
-    dir_ = random_bool(random_gen) ? 1 : -1;
+    dir_ = random_bool() ? 1 : -1;
 
     // We want to draw the next segment SPACING further into the curve. In
     // other words, we want an arc length of SPACING.
@@ -484,8 +466,7 @@ public:
     theta_ = (TrackGenerator::SPACING / radius_) * dir_;
 
     // Each turn should have an angle of between 45 and 90 degrees.
-    float angle =
-      (random_int(random_gen, 50, 101) / 100.f) * glm::half_pi<float>();
+    float angle = (random_int(50, 101) / 100.f) * glm::half_pi<float>();
     length_ = std::abs(angle / theta_) + 1;
 
     center_ = start_.pos +
@@ -510,7 +491,7 @@ public:
 void TrackGenerator::set_strategy(Ecs& ecs, Strategy strat) {
   // Disallow consecutive thin tracks to keep turns wider.
   const float min_width = head_.width < SAFE_WIDTH ? SAFE_WIDTH : MIN_WIDTH;
-  const float new_track_width = random_int(random_gen, min_width, MAX_WIDTH);
+  const float new_track_width = random_int(min_width, MAX_WIDTH);
 
   switch (strat) {
     case TrackGenerator::CHANGE_WIDTH:
@@ -521,7 +502,6 @@ void TrackGenerator::set_strategy(Ecs& ecs, Strategy strat) {
       float gear_turn_ratio = (current_gear_ + 1) * 0.5;
       float larger_width = std::max(head_.width, new_track_width);
       float radius = random_int(
-          random_gen,
           std::max(larger_width * 1.5f, larger_width * gear_turn_ratio),
           larger_width * 5);
       strategy_.reset(new TrackStrategyCircularCurve(head_, new_track_width,
@@ -541,7 +521,7 @@ void TrackGenerator::extend_track(Ecs& ecs) {
     }
 
     if (!strategy_ || strategy_->finished()) 
-      set_strategy(ecs, Strategy(random_int(random_gen, N_STRAGEGIES)));
+      set_strategy(ecs, Strategy(random_int(N_STRAGEGIES)));
 
     plank_pool_.create_new(ecs,
                            Transform{head_.pos,
@@ -593,7 +573,7 @@ void write_broken_plank(
 }
 
 Error run() {
-  random_gen.seed(rd());
+  random_seed();
 
   Graphics gfx;
   if (Error e = gfx.init(WINDOW_WIDTH, WINDOW_HEIGHT); !e.ok) return e;

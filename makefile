@@ -8,6 +8,9 @@ run : obj/run
 
 .PHONY: test run
 
+obj/random.o : random.h random.cpp
+	${COMPILER} ${OPS} -c random.cpp -o obj/random.o
+
 obj/vec_test : vec.h vec_test.cpp test.h
 	${COMPILER} ${OPS} vec_test.cpp -o obj/vec_test
 	./obj/vec_test
@@ -22,8 +25,8 @@ obj/graphics.o : graphics.h graphics.cpp glpp.h util.h
 obj/math.o : math.h math.cpp
 	${COMPILER} ${OPS} -c math.cpp -o obj/math.o
 
-obj/main.o : main.cpp obj/graphics.o obj/math.o glpp.h
+obj/main.o : main.cpp obj/graphics.o obj/math.o glpp.h random.h
 	${COMPILER} ${OPS} -c main.cpp -o obj/main.o
 
-obj/run : obj/main.o 
+obj/run : obj/main.o obj/math.o obj/graphics.o obj/random.o
 	${COMPILER} ${OPS} obj/*.o -lSDL2 -lGL -lGLEW -lGLU -o obj/run
