@@ -3,6 +3,7 @@
 #include <SDL2/SDL_opengl.h>
 #include <GL/glu.h>
 #include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/closest_point.hpp>
@@ -15,6 +16,7 @@
 #include <memory>
 
 #include "line_breaker_shader.h"
+#include "line_breaker_components.h"
 
 #include "ecs.h"
 #include "glpp.h"
@@ -31,7 +33,6 @@ constexpr auto TIME_STEP_MS = TIME_STEP.count();
 
 constexpr auto BROKEN_PLANK_LIFETIME = std::chrono::seconds(2);
 
-constexpr float MAX_SPEED = 0.04;
 // The coefficient of negative acceleration proportionate to velocity.
 // Similar to air resistance + friction.
 constexpr float SHIP_RESISTENCE = 0.001f;
@@ -49,38 +50,6 @@ constexpr float SHIP_HALF_WIDTH = 0.5f;
 std::ostream& operator<<(std::ostream& os, const glm::vec3 v) {
   return os << '<' << v.x << ", " << v.y << ", " << v.z << '>';
 }
-
-// All entities that can be rendered have a transform that describes their
-// position and shape.
-struct Transform {
-  glm::vec3 pos;
-  float rotation;  // in radians.
-
-  // TODO: this should really be in LineData. The question is how to properly
-  // pipe it to the render code.
-  float length;  // Used for lines in determining how long they are.
-};
-
-// All things that move through the world.
-struct Physics {
-  glm::vec3 a, v;
-  float rotation_velocity;
-
-  // TODO: This is a nice implicit Euler integration, but consider RK4.
-  // ref: https://gafferongames.com/post/integration_basics/#:~:text=Euler%20integration%20is%20the%20most,is%20constant%20over%20the%20timestep.&text=However%2C%20we%20are%20also%20integrating,error%20in%20the%20integrated%20position.
-  void integrate(Transform& t) {
-    t.rotation += rotation_velocity * TIME_STEP_MS;
-
-    v += a * float(TIME_STEP_MS);
-    if (glm::length(v) > MAX_SPEED) v = vec_resize(v, MAX_SPEED);
-
-    t.pos += v * float(TIME_STEP_MS);
-  }
-};
-
-struct TimeToDie {
-  std::chrono::high_resolution_clock::time_point time_to_die;
-};
 
 // Represents the in-game understanding of user inputs.
 struct ShipController {
@@ -133,34 +102,9 @@ std::pair<float, bool> intersection(const ShipPoints& ship_points,
                                       line_points.a, line_points.b);
 }
 
-struct Gear {
-  float thrust;
-  glm::vec3 color;
-};
-
-constexpr std::array GEARS{
-  Gear{1.500e-05, {0.1, 0.1, 0.5}},
-  Gear{1.750e-05, {0.1, 0.2, 0.55}},
-  Gear{2.000e-05, {0.2, 0.2, 0.6}},
-  Gear{2.300e-05, {0.2, 0.3, 0.8}},
-  Gear{2.500e-05, {0.3, 0.4, 0.8}},
-  Gear{2.580e-05, {0.4, 0.4, 0.9}},
-  Gear{3.000e-05, {0.5, 0.5, 1.0}},
-  Gear{3.500e-05, {0.6, 0.6, 1.0}},
-  Gear{4.000e-05, {1.0, 1.0, 1.0}}
-};
-
-struct LineData {
-  std::size_t gear;
-};
-
 struct Vertex {
   glm::vec3 pos;
   glm::vec2 tex_coord;
-};
-
-struct Color {
-  glm::vec3 c;
 };
 
 void draw_object(const Transform& transform,
@@ -212,10 +156,6 @@ std::chrono::milliseconds time_diff(
   return std::chrono::duration_cast<std::chrono::milliseconds>(
       new_time - old_time);
 }
-
-using Ecs = EntityComponentSystem<Transform, Physics, TimeToDie,
-                                  ShaderBindings*, Color,
-                                  LineData>;
 
 // Please excuse the bad name. TODO: Make a better one.
 //
@@ -460,7 +400,7 @@ void TrackGenerator::extend_track(Ecs& ecs) {
                                      head_.width},
                            shader_bindings_,
                            Color{GEARS[current_gear_].color},
-                           LineData{current_gear_});
+                           PlankData{current_gear_});
     head_ = strategy_->next_plank();
   }
 }
@@ -738,7 +678,7 @@ Error run() {
       ship_physics.a -= ship_physics.v * SHIP_RESISTENCE;
 
       for (auto [_, t, phys] : game.ecs().read_all<Transform, Physics>())
-        phys.integrate(t);
+        phys.integrate(t, TIME_STEP_MS);
 
       ship_physics.rotation_velocity = 0;
 
@@ -753,7 +693,7 @@ Error run() {
 
       ShipPoints ship_points(ship_transform);
       for (const auto& [id, line_transform, line_data, color] :
-           game.ecs().read_all<Transform, LineData, Color>()) {
+           game.ecs().read_all<Transform, PlankData, Color>()) {
         // Bounds check first.
         if (glm::distance(line_transform.pos, ship_points.center_of_gravity) <
             line_transform.length + SHIP_LENGTH &&

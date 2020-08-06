@@ -28,7 +28,7 @@ obj/line_breaker_shader.o : line_breaker_shader.h line_breaker_shader.cpp util.h
 obj/math.o : math.h math.cpp
 	${COMPILER} ${OPS} -c math.cpp -o obj/math.o
 
-obj/main.o : main.cpp graphics.h math.h glpp.h random.h ecs.h
+obj/main.o : main.cpp *.h
 	${COMPILER} ${OPS} -c main.cpp -o obj/main.o
 
 obj/run : obj/main.o obj/math.o obj/graphics.o obj/random.o obj/line_breaker_shader.o
