@@ -243,6 +243,12 @@ class EntityComponentSystem {
 public:
   EntityComponentSystem() = default;
 
+  void clear() {
+    entity_ids_.clear();
+    garbage_ids_.clear();
+    (get_store<Components>().clear(), ...);
+  }
+
   EntityId new_entity() {
     entity_ids_.push_back({next_id_, true});
     next_id_.id++;

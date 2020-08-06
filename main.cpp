@@ -310,6 +310,8 @@ class EntityPool {
 public:
   EntityPool() { }
 
+  void clear() { free_list_.clear(); }
+
   void deactivate(Ecs& ecs, EntityId id) {
     free_list_.insert_if_not_present(id);
     ecs.deactivate(id);
@@ -351,8 +353,8 @@ class TrackGenerator {
 
   unsigned int plank_count_ = 0;
   unsigned int planks_destroyed_ = 0;
-  unsigned int difficulty_increase_at_ = 200;
-  DifficultyIncreaseReason difficulty_increase_reason_ = GEAR_UP;
+  unsigned int difficulty_increase_at_;
+  DifficultyIncreaseReason difficulty_increase_reason_;
 
   // Planks that have been consumed, available to be re-used.
   EntityPool plank_pool_;
@@ -363,7 +365,7 @@ public:
   struct Head {
     glm::vec3 pos;
     float rotation = 0;  // The direction of the track.
-    float width = SHIP_HALF_WIDTH * 2 * 3;
+    float width;
   } head_;
 
   // The spacing between different segments of road.
@@ -379,10 +381,20 @@ public:
     N_STRAGEGIES
   };
 
-  TrackGenerator(glm::vec3 pos, ShaderBindings* bindings)
-    : shader_bindings_(bindings) {
+  void reset(glm::vec3 pos) {
     head_.pos = pos;
+    head_.rotation = 0;
+    head_.width = SHIP_HALF_WIDTH * 2 * 3;
+    plank_count_ = 0;
+    planks_destroyed_ = 0;
+    difficulty_increase_at_ = 200;
+    difficulty_increase_reason_ = GEAR_UP;
+    current_gear_ = 0;
+    plank_pool_.clear();
   }
+
+  TrackGenerator(ShaderBindings* bindings)
+    : shader_bindings_(bindings) { }
 
   void set_heading(float h) { head_.rotation = h; }
   float heading() const { return head_.rotation; }
@@ -572,6 +584,74 @@ void write_broken_plank(
       Color(color));
 }
 
+// Holds much of the game logic state allowing us to do operations like reset
+// it to the start.
+class Game {
+  Ecs ecs_;
+  EntityId player_;
+  // The acceleration the player ship always has in the direction it faces.
+  float  player_thrust_;
+  TrackGenerator track_gen_;
+
+  // The pool used for managing broken planks. (Planks split in two when the
+  // player hits them.)
+  EntityPool broken_plank_pool_;
+
+  ShaderBindings* player_shader_bindings_;
+  ShaderBindings* line_shader_bindings_;
+
+  // If true, the player may control their thrusters with up and down on the
+  // arrow keys.
+  bool manual_thrusters_enabled_ = true;
+
+public:
+  void reset();
+
+  Game(ShaderBindings* player_shader_bindings,
+       ShaderBindings* line_shader_bindings)
+    : track_gen_(line_shader_bindings),
+      player_shader_bindings_(player_shader_bindings),
+      line_shader_bindings_(line_shader_bindings)
+  {
+    reset();
+  }
+
+  Ecs& ecs() { return ecs_; }
+  const Ecs& ecs() const { return ecs_; }
+
+  TrackGenerator& track_gen() { return track_gen_; }
+  const TrackGenerator& track_gen() const { return track_gen_; }
+
+  EntityId player() const { return player_; }
+
+  void set_manual_thrusters_enabled(bool b) { manual_thrusters_enabled_ = b; }
+  bool manual_thrusters_enabled() const { return manual_thrusters_enabled_; }
+
+  void add_player_thrust(float thrust) {
+    player_thrust_ = std::max(player_thrust_ + thrust, 0.f);
+  }
+
+  void set_player_thrust(float thrust) { player_thrust_ = thrust; }
+  float player_thrust() const { return player_thrust_; }
+
+  EntityPool& broken_plank_pool() { return broken_plank_pool_; }
+  const EntityPool& broken_plank_pool() const { return broken_plank_pool_; }
+};
+
+void Game::reset() {
+  ecs().clear();
+  track_gen_.reset(glm::vec3(3, 0, 0));
+  track_gen().set_strategy(ecs(), TrackGenerator::CHANGE_WIDTH);
+
+  manual_thrusters_enabled_ = true;
+  player_thrust_ = 0;
+  player_ = ecs().write_new_entity(
+      Transform{glm::vec3(0.0f), 0, 0},
+      Physics{glm::vec3(), glm::vec3(), 0},
+      Color{glm::vec3()},  // unused
+      player_shader_bindings_);
+}
+
 Error run() {
   random_seed();
 
@@ -629,8 +709,6 @@ Error run() {
   gl::bindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo_elems_id);
   gl::bufferData(GL_ELEMENT_ARRAY_BUFFER, vbo_elems, GL_STATIC_DRAW);
 
-  Ecs ecs;
-
   ShaderBindings player_shader_bindings(&ship_shader_program, quad_vbo);
   if (Error e =
       ship_shader_program.uniform_location(
@@ -642,11 +720,6 @@ Error run() {
       ship_shader_program.attribute_location(
           "tex_coord", player_shader_bindings.tex_coord_attrib);
       !e.ok) return e;
-
-  auto player = ecs.write_new_entity(Transform{glm::vec3(0.0f), 0, 0},
-                                     Physics{glm::vec3(), glm::vec3(), 0},
-                                     Color{glm::vec3()},  // unused
-                                     &player_shader_bindings);
 
   ShaderBindings line_shader_bindings(&line_shader_program, line_vbo);
   line_shader_program.use();
@@ -661,17 +734,11 @@ Error run() {
           "vertex_pos", line_shader_bindings.vertex_pos_attrib);
       !e.ok) return e;
 
-  // One should be roughly the width of the player ship.
-  TrackGenerator track_gen(glm::vec3(3, 0, 0), &line_shader_bindings);
-  track_gen.set_strategy(ecs, TrackGenerator::CHANGE_WIDTH);
+  Game game(&player_shader_bindings, &line_shader_bindings);
+  game.reset();
 
   // TODO: These should eventually be stored into components, too.
   ShipController ship_controller;
-  // The acceleration the ship always has in the direction it faces.
-  float ship_thrust = 0;
-  // If true, the player may control their thrusters with up and down on the
-  // arrow keys.
-  bool manual_thrusters_enabled = true;
 
   auto time = std::chrono::high_resolution_clock::now();
   std::chrono::high_resolution_clock::time_point last_physics_update =
@@ -684,8 +751,6 @@ Error run() {
   glm::vec3 camera_offset(0.f);
   // TODO: make less linear.
   float zoom = 0.25f;
-
-  EntityPool broken_plank_pool;
 
   while (keep_going) {
     while (SDL_PollEvent(&e) != 0) {
@@ -700,6 +765,7 @@ Error run() {
               control = &ship_controller.rotate_counterclockwise; break;
             case SDLK_RIGHT:
               control = &ship_controller.rotate_clockwise; break;
+            case 'r': game.reset(); break;
             case 'q': keep_going = false; break;
             case ' ': flip = !flip; break;
           }
@@ -720,16 +786,17 @@ Error run() {
     while (time_diff(last_physics_update, new_time) > TIME_STEP) {
       last_physics_update += TIME_STEP;
 
-      Transform& ship_transform = ecs.read_or_panic<Transform>(player);
-      Physics& ship_physics = ecs.read_or_panic<Physics>(player);
+      Transform& ship_transform =
+        game.ecs().read_or_panic<Transform>(game.player());
+      Physics& ship_physics =
+        game.ecs().read_or_panic<Physics>(game.player());
 
       ship_physics.rotation_velocity = 0;
-      ship_thrust -= SHIP_THRUST_DECAY;
-      if (manual_thrusters_enabled) {
-        if (ship_controller.thruster) ship_thrust += SHIP_THRUST;
-        if (ship_controller.breaks) ship_thrust -= SHIP_THRUST;
+      game.add_player_thrust(-SHIP_THRUST_DECAY);
+      if (game.manual_thrusters_enabled()) {
+        if (ship_controller.thruster) game.add_player_thrust(SHIP_THRUST);
+        if (ship_controller.breaks) game.add_player_thrust(-SHIP_THRUST);
       }
-      ship_thrust = std::max(ship_thrust, 0.f);
 
       if (ship_controller.rotate_clockwise)
         ship_physics.rotation_velocity -= SHIP_ROTATE_SPEED;
@@ -737,8 +804,9 @@ Error run() {
         ship_physics.rotation_velocity += SHIP_ROTATE_SPEED;
 
       ship_physics.a = glm::vec3();
-      if (ship_thrust != 0)
-        ship_physics.a = radial_vec(ship_transform.rotation, ship_thrust);
+      if (game.player_thrust() != 0)
+        ship_physics.a = radial_vec(ship_transform.rotation,
+                                    game.player_thrust());
       if (glm::length(ship_physics.v)) {
         glm::vec3 heading = radial_vec(ship_transform.rotation);
         ship_physics.a += vec_resize(
@@ -748,7 +816,7 @@ Error run() {
 
       ship_physics.a -= ship_physics.v * SHIP_RESISTENCE;
 
-      for (auto [_, t, phys] : ecs.read_all<Transform, Physics>())
+      for (auto [_, t, phys] : game.ecs().read_all<Transform, Physics>())
         phys.integrate(t);
 
       ship_physics.rotation_velocity = 0;
@@ -764,25 +832,25 @@ Error run() {
 
       ShipPoints ship_points(ship_transform);
       for (const auto& [id, line_transform, line_data, color] :
-           ecs.read_all<Transform, LineData, Color>()) {
+           game.ecs().read_all<Transform, LineData, Color>()) {
         // Bounds check first.
         if (glm::distance(line_transform.pos, ship_points.center_of_gravity) <
             line_transform.length + SHIP_LENGTH &&
-            !ecs.is_marked(id)) {
+            !game.ecs().is_marked(id)) {
           LinePoints line_points(line_transform);
           if (auto [u, intersects] = intersection(ship_points, line_points);
               intersects) {
-            manual_thrusters_enabled = false;
-            track_gen.delete_plank(ecs, id);
-            ship_thrust = GEARS[line_data.gear].thrust;
+            game.set_manual_thrusters_enabled(false);
+            game.track_gen().delete_plank(game.ecs(), id);
+            game.set_player_thrust(GEARS[line_data.gear].thrust);
 
             auto crash_point =
               line_points.a + (line_points.b - line_points.a) * u;
-            write_broken_plank(ecs, broken_plank_pool,
+            write_broken_plank(game.ecs(), game.broken_plank_pool(),
                                line_points.a, crash_point, u,
                                line_transform, ship_physics.v,
                                line_shader_bindings, color, time);
-            write_broken_plank(ecs, broken_plank_pool,
+            write_broken_plank(game.ecs(), game.broken_plank_pool(),
                                line_points.b, crash_point, 1 - u,
                                line_transform, ship_physics.v,
                                line_shader_bindings, color, time);
@@ -792,19 +860,20 @@ Error run() {
       }
     }
 
-    track_gen.extend_track(ecs);
+    game.track_gen().extend_track(game.ecs());
 
     time = new_time;
 
-    for (auto [id, ttd] : ecs.read_all<TimeToDie>())
-      if (ttd.time_to_die <= time) broken_plank_pool.deactivate(ecs, id);
+    for (auto [id, ttd] : game.ecs().read_all<TimeToDie>())
+      if (ttd.time_to_die <= time)
+        game.broken_plank_pool().deactivate(game.ecs(), id);
 
-    ecs.deleted_marked_ids();
+    game.ecs().deleted_marked_ids();
 
     gl::clear();
 
     for (const auto& [id, transform, color, shader_bindings] :
-         ecs.read_all<Transform, Color, ShaderBindings*>()) {
+         game.ecs().read_all<Transform, Color, ShaderBindings*>()) {
       draw_object(transform, shader_bindings, color, camera_offset, zoom);
     }
 

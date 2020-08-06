@@ -128,6 +128,8 @@ public:
     return find(u, key).second;
   }
 
+  void clear() { data_.clear(); }
+
   // TODO: Assert that v > this->back(). For now, callers are responsible for
   // keeping this sorted.
   void push_back(value_type v) { data_.push_back(std::move(v)); }
