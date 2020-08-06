@@ -444,3 +444,48 @@ public:
     entity_ids_.find_erase(id, &EntityData::id);
   }
 };
+
+// Please excuse the bad name. TODO: Make a better one.
+//
+// Maintains a free list of entities of a specific type. When that entity has
+// expired, instead of deleting it, this pool deactivates it. When an entity is
+// created, this pool can reactivate it with new parameters or create a new one
+// entirely.
+class EntityPool {
+  SortedVector<EntityId> free_list_;
+
+public:
+  EntityPool() { }
+
+  void clear() { free_list_.clear(); }
+
+  template<typename...Components>
+  void deactivate(EntityComponentSystem<Components...>& ecs, EntityId id) {
+    free_list_.insert_if_not_present(id);
+    ecs.deactivate(id);
+  }
+
+  template<typename...Components, typename...Args>
+  void create_new(EntityComponentSystem<Components...>& ecs, Args&&...args) {
+    bool made_new = false;
+    if (free_list_.size()) {
+      EcsError e = ecs.write(free_list_.back(), std::forward<Args>(args)...);
+
+      if (e == EcsError::OK) {
+        ecs.activate(free_list_.back());
+        made_new = true;
+      } else if (e == EcsError::NOT_FOUND) {
+        std::cerr << "WARNING: We're holding onto ID's in our free list that "
+                     "may have been garbage collected." << std::endl;
+      } else {
+        std::cerr << "EntityPool: unhandled error on write." << std::endl;
+      }
+
+      free_list_.pop_back();
+    }
+
+    if (!made_new) {
+      ecs.write_new_entity(std::forward<Args>(args)...);
+    }
+  }
+};
