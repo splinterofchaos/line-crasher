@@ -15,6 +15,7 @@
 #include <iostream>
 #include <memory>
 
+#include "line_breaker_track.h"
 #include "line_breaker_shader.h"
 #include "line_breaker_components.h"
 
@@ -30,22 +31,6 @@ constexpr int WINDOW_WIDTH = 800;
 // Target 60 FPS and do physics updates four times as often.
 constexpr auto TIME_STEP = std::chrono::milliseconds(1000) / (60 * 4);
 constexpr auto TIME_STEP_MS = TIME_STEP.count();
-
-constexpr auto BROKEN_PLANK_LIFETIME = std::chrono::seconds(2);
-
-// The coefficient of negative acceleration proportionate to velocity.
-// Similar to air resistance + friction.
-constexpr float SHIP_RESISTENCE = 0.001f;
-// The acceleration applied by side thrusters to keep the ship moving forward.
-constexpr float SHIP_SIDE_THRUST = 0.0005;
-constexpr float SHIP_THRUST       = 0.0000002f;
-constexpr float SHIP_THRUST_DECAY = 0.000000075f;
-constexpr float SHIP_ROTATE_SPEED = 0.005;
-
-constexpr float SHIP_NOSE_LENGTH = 0.8f;
-constexpr float SHIP_TAIL_LENGTH = 0.2f;
-constexpr float SHIP_LENGTH = SHIP_NOSE_LENGTH + SHIP_TAIL_LENGTH;
-constexpr float SHIP_HALF_WIDTH = 0.5f;
 
 std::ostream& operator<<(std::ostream& os, const glm::vec3 v) {
   return os << '<' << v.x << ", " << v.y << ", " << v.z << '>';
@@ -157,209 +142,6 @@ std::chrono::milliseconds time_diff(
       new_time - old_time);
 }
 
-class TrackGeneratorStrategy;
-
-class TrackGenerator {
-  ShaderBindings* shader_bindings_;
-  std::size_t current_gear_ = 0;
-
-  enum DifficultyIncreaseReason { GEAR_UP, NARROW_TRACK };
-
-  unsigned int plank_count_ = 0;
-  unsigned int planks_destroyed_ = 0;
-  unsigned int difficulty_increase_at_;
-  DifficultyIncreaseReason difficulty_increase_reason_;
-
-  // Planks that have been consumed, available to be re-used.
-  EntityPool plank_pool_;
-
-  std::unique_ptr<TrackGeneratorStrategy> strategy_;
-
-public:
-  struct Head {
-    glm::vec3 pos;
-    float rotation = 0;  // The direction of the track.
-    float width;
-  } head_;
-
-  // The spacing between different segments of road.
-  constexpr static float SPACING = 0.5f;
-  constexpr static float MAX_WIDTH = SHIP_HALF_WIDTH * 2 * 10;
-  constexpr static float MIN_WIDTH = SHIP_HALF_WIDTH * 2 * 1;
-  constexpr static float SAFE_WIDTH = MIN_WIDTH * 3;
-  constexpr static unsigned int MAX_PLANKS = 200;
-
-  enum Strategy {
-    CIRCULAR_CURVE,
-    CHANGE_WIDTH,
-    N_STRAGEGIES
-  };
-
-  void reset(glm::vec3 pos) {
-    head_.pos = pos;
-    head_.rotation = 0;
-    head_.width = SHIP_HALF_WIDTH * 2 * 3;
-    plank_count_ = 0;
-    planks_destroyed_ = 0;
-    difficulty_increase_at_ = 200;
-    difficulty_increase_reason_ = GEAR_UP;
-    current_gear_ = 0;
-    plank_pool_.clear();
-  }
-
-  TrackGenerator(ShaderBindings* bindings)
-    : shader_bindings_(bindings) { }
-
-  void set_heading(float h) { head_.rotation = h; }
-  float heading() const { return head_.rotation; }
-
-  const glm::vec3& pos() { return head_.pos; }
-
-  void set_strategy(Ecs& ecs, Strategy strat);
-  void extend_track(Ecs& ecs);
-
-  void delete_plank(Ecs& ecs, EntityId id) {
-    plank_count_--;
-    planks_destroyed_++;
-    plank_pool_.deactivate(ecs, id);
-  }
-};
-
-// When changing the width of the track, we take `len` planks to go from `old_`
-// to `new_width`. This calculates the width of the i'th plank.
-float smooth_width(float old_width, float new_width,
-                   unsigned int i, unsigned int half_phase) {
-  const float theta = (float(i + 1) / half_phase) * glm::pi<float>();
-  return glm::mix(new_width, old_width, std::cos(theta) / 2 + 0.5);
-
-}
-
-class TrackGeneratorStrategy {
-protected:
-  TrackGenerator::Head start_;
-  float exit_width_;
-
-  unsigned int count_ = 0;  // Number of planks laid so far.
-  unsigned int length_;     // Total number of planks to lay.
-
-public:
-  TrackGeneratorStrategy(TrackGenerator::Head pos, float exit_width,
-                         unsigned int length = 0)
-    : start_(pos), exit_width_(exit_width), length_(length) { }
-
-  virtual TrackGenerator::Head next_plank() = 0;
-  virtual bool finished() const = 0;
-};
-
-
-class TrackStrategyChangeWidth : public TrackGeneratorStrategy{
-public:
-  TrackStrategyChangeWidth(TrackGenerator::Head pos, float exit_width,
-                           unsigned int length)
-    : TrackGeneratorStrategy(pos, exit_width, length) { }
-
-  TrackGenerator::Head next_plank() override {
-    ++count_;
-    TrackGenerator::Head ret{
-        .pos = start_.pos + radial_vec(start_.rotation,
-                                       TrackGenerator::SPACING * count_),
-        .rotation = start_.rotation,
-        .width = smooth_width(start_.width, exit_width_, count_, length_)
-    };
-    return ret;
-  }
-
-  bool finished() const override { return count_ >= length_; }
-};
-
-class TrackStrategyCircularCurve : public TrackGeneratorStrategy {
-  glm::vec3 center_;        // Center of the circle.
-  float radius_;
-  float theta_;
-  int dir_;
-
-public:
-  TrackStrategyCircularCurve(TrackGenerator::Head pos, float exit_width,
-                             float radius)
-    : TrackGeneratorStrategy(pos, exit_width), radius_(radius) {
-    dir_ = random_bool() ? 1 : -1;
-
-    // We want to draw the next segment SPACING further into the curve. In
-    // other words, we want an arc length of SPACING.
-    //    arc length = r * theta.
-    //    arc length / r = theta.
-    // where theta is the rate of change.
-    theta_ = (TrackGenerator::SPACING / radius_) * dir_;
-
-    // Each turn should have an angle of between 45 and 90 degrees.
-    float angle = (random_int(50, 101) / 100.f) * glm::half_pi<float>();
-    length_ = std::abs(angle / theta_) + 1;
-
-    center_ = start_.pos +
-      radial_vec(start_.rotation + glm::half_pi<float>() * dir_, radius_);
-  }
-
-  TrackGenerator::Head next_plank() override {
-    ++count_;
-    float rotation = start_.rotation + theta_ * count_;
-    TrackGenerator::Head ret{
-      .pos = center_ + radial_vec(rotation - glm::half_pi<float>() * dir_,
-                                  radius_),
-      .rotation = rotation,
-      .width = smooth_width(start_.width, exit_width_, count_, length_)};
-    return ret;
-  }
-
-  bool finished() const override { return count_ >= length_; }
-      
-};
-
-void TrackGenerator::set_strategy(Ecs& ecs, Strategy strat) {
-  // Disallow consecutive thin tracks to keep turns wider.
-  const float min_width = head_.width < SAFE_WIDTH ? SAFE_WIDTH : MIN_WIDTH;
-  const float new_track_width = random_int(min_width, MAX_WIDTH);
-
-  switch (strat) {
-    case TrackGenerator::CHANGE_WIDTH:
-      strategy_.reset(new TrackStrategyChangeWidth(head_, new_track_width,
-                                                   10.f / SPACING));
-      break;
-    case TrackGenerator::CIRCULAR_CURVE: {
-      float gear_turn_ratio = (current_gear_ + 1) * 0.5;
-      float larger_width = std::max(head_.width, new_track_width);
-      float radius = random_int(
-          std::max(larger_width * 1.5f, larger_width * gear_turn_ratio),
-          larger_width * 5);
-      strategy_.reset(new TrackStrategyCircularCurve(head_, new_track_width,
-                                                     radius));
-      break;
-    }
-    case TrackGenerator::N_STRAGEGIES:
-      std::cerr << "unhandled TrackGenerator::Strategy" << std::endl;
-  }
-}
-
-void TrackGenerator::extend_track(Ecs& ecs) {
-  for (; plank_count_ < MAX_PLANKS; ++plank_count_) {
-    if (planks_destroyed_ >= difficulty_increase_at_) {
-      if (current_gear_ + 1 < GEARS.size()) ++current_gear_;
-      difficulty_increase_at_ *= 2.5;
-    }
-
-    if (!strategy_ || strategy_->finished()) 
-      set_strategy(ecs, Strategy(random_int(N_STRAGEGIES)));
-
-    plank_pool_.create_new(ecs,
-                           Transform{head_.pos,
-                                     head_.rotation + glm::half_pi<float>(),
-                                     head_.width},
-                           shader_bindings_,
-                           Color{GEARS[current_gear_].color},
-                           PlankData{current_gear_});
-    head_ = strategy_->next_plank();
-  }
-}
-
 // When the ship hits a plank, it will break it into two pieces. Adds one of
 // them to the ECS.
 void write_broken_plank(
@@ -397,6 +179,7 @@ void write_broken_plank(
       &shader_bindings,
       Color(color));
 }
+
 
 // Holds much of the game logic state allowing us to do operations like reset
 // it to the start.

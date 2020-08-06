@@ -7,6 +7,22 @@
 #include "line_breaker_shader.h"  // For ShaderBindings
 #include "math.h"
 
+// The coefficient of negative acceleration proportionate to velocity.
+// Similar to air resistance + friction.
+inline constexpr float SHIP_RESISTENCE = 0.001f;
+// The acceleration applied by side thrusters to keep the ship moving forward.
+inline constexpr float SHIP_SIDE_THRUST = 0.0005;
+inline constexpr float SHIP_THRUST       = 0.0000002f;
+inline constexpr float SHIP_THRUST_DECAY = 0.000000075f;
+inline constexpr float SHIP_ROTATE_SPEED = 0.005;
+
+inline constexpr float SHIP_NOSE_LENGTH = 0.8f;
+inline constexpr float SHIP_TAIL_LENGTH = 0.2f;
+inline constexpr float SHIP_LENGTH = SHIP_NOSE_LENGTH + SHIP_TAIL_LENGTH;
+inline constexpr float SHIP_HALF_WIDTH = 0.5f;
+
+inline constexpr auto BROKEN_PLANK_LIFETIME = std::chrono::seconds(2);
+
 // All entities that can be rendered have a transform that describes their
 // position and shape.
 struct Transform {
