@@ -247,6 +247,7 @@ public:
     entity_ids_.clear();
     garbage_ids_.clear();
     (get_store<Components>().clear(), ...);
+    next_id_ = {0};
   }
 
   EntityId new_entity() {

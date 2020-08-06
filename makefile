@@ -25,7 +25,7 @@ obj/graphics.o : graphics.h graphics.cpp glpp.h util.h
 obj/math.o : math.h math.cpp
 	${COMPILER} ${OPS} -c math.cpp -o obj/math.o
 
-obj/main.o : main.cpp obj/graphics.o obj/math.o glpp.h random.h
+obj/main.o : main.cpp graphics.h math.h glpp.h random.h ecs.h
 	${COMPILER} ${OPS} -c main.cpp -o obj/main.o
 
 obj/run : obj/main.o obj/math.o obj/graphics.o obj/random.o
