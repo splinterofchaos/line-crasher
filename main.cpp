@@ -643,6 +643,8 @@ void Game::reset() {
   track_gen_.reset(glm::vec3(3, 0, 0));
   track_gen().set_strategy(ecs(), TrackGenerator::CHANGE_WIDTH);
 
+  broken_plank_pool().clear();
+
   manual_thrusters_enabled_ = true;
   player_thrust_ = 0;
   player_ = ecs().write_new_entity(
