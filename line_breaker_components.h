@@ -22,6 +22,7 @@ inline constexpr float SHIP_LENGTH = SHIP_NOSE_LENGTH + SHIP_TAIL_LENGTH;
 inline constexpr float SHIP_HALF_WIDTH = 0.5f;
 
 inline constexpr auto BROKEN_PLANK_LIFETIME = std::chrono::seconds(2);
+inline constexpr auto FLAME_LIFETIME = std::chrono::milliseconds(500);
 
 // All entities that can be rendered have a transform that describes their
 // position and shape.
@@ -89,6 +90,7 @@ struct TimeToDie {
 struct Gear {
   float thrust;
   glm::vec4 color;
+  float thrust_particles_per_ms;
 };
 
 // Each higher gear gets brighter and offers more thrust.

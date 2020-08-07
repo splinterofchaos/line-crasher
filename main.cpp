@@ -183,6 +183,35 @@ void write_broken_plank(
       Color({color.get(), glm::vec4()}));
 }
 
+void write_flame(
+    Ecs& ecs,
+    EntityPool& pool,
+    const Transform& ship_transform,
+    const ShipPoints& ship_points,
+    const Physics& ship_physics,
+    float ship_thrust,
+    ShaderBindings& shader_bindings,
+    const std::chrono::high_resolution_clock::time_point& now) {
+  // Modify the rotation by up to 30 degrees (pi / 6)
+  float dir_mod = random_float(0, glm::pi<float>() / 12.f, 100) * random_sign();
+  glm::vec3 v = ship_physics.v + radial_vec(
+      ship_transform.rotation + glm::pi<float>() + dir_mod,
+      ship_thrust * random_int(200, 500));
+  pool.create_new(
+      ecs,
+      Transform{(ship_points.left_back + ship_points.right_back) / 2.f,
+                ship_transform.rotation + glm::pi<float>(),
+                0.05f},
+      Physics{glm::vec3(), v, ship_physics.rotation_velocity},
+      TimeToDie{now, now + FLAME_LIFETIME},
+      &shader_bindings,
+      Color({glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+             glm::vec4(1.0f, 0.3f, 0.3f, 1.0f),
+             glm::vec4(0.8f, 0.8f, 0.2f, 1.0f),
+             glm::vec4(0.2f, 0.1f, 0.0f, 1.0f),
+             glm::vec4()}));
+}
+
 
 // Holds much of the game logic state allowing us to do operations like reset
 // it to the start.
@@ -296,7 +325,7 @@ void fill_score_digits(std::vector<unsigned int>& score_digits,
   }
 }
 
-Error run() {
+Error run(bool show_thrust) {
   random_seed();
 
   Graphics gfx;
@@ -497,6 +526,18 @@ Error run() {
         zoom -= std::log(glm::length(ship_physics.v) * 1000) * 0.06;
 
       ShipPoints ship_points(ship_transform);
+
+      static float flames_expected_for_thrust = 0;
+      flames_expected_for_thrust += game.player_thrust();
+      for (;
+           show_thrust && flames_expected_for_thrust > GEARS[0].thrust / 2.f;
+           flames_expected_for_thrust =
+              std::max(flames_expected_for_thrust - GEARS[0].thrust, 0.f)) {
+        write_flame(game.ecs(), game.broken_plank_pool(), ship_transform,
+                    ship_points, ship_physics, game.player_thrust(),
+                    line_shader_bindings, time);
+      }
+
       for (const auto& [id, line_transform, line_data, color] :
            game.ecs().read_all<Transform, PlankData, Color>()) {
         // Bounds check first.
@@ -563,8 +604,9 @@ Error run() {
   return Error();
 }
 
-int main() {
-  if (Error e = run(); !e.ok) {
+int main(int argc, char** argv) {
+  bool show_thrust = argc == 2 && strcmp(argv[1], "--show_thrust") == 0;
+  if (Error e = run(show_thrust); !e.ok) {
     std::cerr << e.reason << std::endl;
     return 1;
   }
