@@ -1,6 +1,6 @@
 #include "line_breaker_shader.h"
 
-Error construct_ship_shader(GlProgram& ship_shader_program)
+Error contruct_textured_shader(GlProgram& tex_shader_program)
 {
   Shader verts(Shader::Type::VERTEX);
   verts.add_source(R"(
@@ -29,9 +29,9 @@ Error construct_ship_shader(GlProgram& ship_shader_program)
   )");
   if (Error e = frag.compile(); !e.ok) return e;
 
-  ship_shader_program.add_shader(verts);
-  ship_shader_program.add_shader(frag);
-  return ship_shader_program.link();
+  tex_shader_program.add_shader(verts);
+  tex_shader_program.add_shader(frag);
+  return tex_shader_program.link();
 }
 
 Error construct_line_shader(GlProgram& line_shader_program) {

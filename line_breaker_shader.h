@@ -3,7 +3,7 @@
 #include "graphics.h"
 #include "util.h"
 
-Error construct_ship_shader(GlProgram& ship_shader_program);
+Error contruct_textured_shader(GlProgram& ship_shader_program);
 Error construct_line_shader(GlProgram& line_shader_program);
 
 // References all shader uniforms and attribute bindings.

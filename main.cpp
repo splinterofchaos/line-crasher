@@ -331,8 +331,8 @@ Error run(bool show_thrust) {
   Graphics gfx;
   if (Error e = gfx.init(WINDOW_WIDTH, WINDOW_HEIGHT); !e.ok) return e;
 
-  GlProgram ship_shader_program;
-  if (Error e = construct_ship_shader(ship_shader_program); !e.ok) return e;
+  GlProgram tex_shader_program;
+  if (Error e = contruct_textured_shader(tex_shader_program); !e.ok) return e;
 
   GlProgram line_shader_program;
   if (Error e = construct_line_shader(line_shader_program); !e.ok) return e;
@@ -356,47 +356,35 @@ Error run(bool show_thrust) {
       !e.ok)
     return e;
 
-  ShaderBindings press_r_bindings{
-    .program = &ship_shader_program,
-    .texture = press_up_press_r};
-  press_r_bindings.vbo = rectangle_vbo(glm::vec3(1.f, 1.f, 1.f),
-                         glm::vec2(0.75f, 0.5f),
-                         glm::vec2(0.50f, 1.0f));
+  ShaderBindings tex_shader_bindings_template{.program = &tex_shader_program};
   if (Error e =
-      ship_shader_program.uniform_location(
-          "tex", press_r_bindings.texture_uniform) &&
-      ship_shader_program.uniform_location(
-          "transform", press_r_bindings.transform_uniform) &&
-      ship_shader_program.attribute_location(
-          "vertex_pos", press_r_bindings.vertex_pos_attrib) &&
-      ship_shader_program.uniform_location(
-          "color", press_r_bindings.color_uniform) &&
-      ship_shader_program.attribute_location(
-          "tex_coord", press_r_bindings.tex_coord_attrib);
+      tex_shader_program.uniform_location(
+          "tex", tex_shader_bindings_template.texture_uniform) &&
+      tex_shader_program.uniform_location(
+          "transform", tex_shader_bindings_template.transform_uniform) &&
+      tex_shader_program.attribute_location(
+          "vertex_pos", tex_shader_bindings_template.vertex_pos_attrib) &&
+      tex_shader_program.uniform_location(
+          "color", tex_shader_bindings_template.color_uniform) &&
+      tex_shader_program.attribute_location(
+          "tex_coord", tex_shader_bindings_template.tex_coord_attrib);
       !e.ok)
     return e;
 
+  ShaderBindings press_r_bindings = tex_shader_bindings_template;
+  press_r_bindings.texture = press_up_press_r;
+  press_r_bindings.vbo = rectangle_vbo(glm::vec3(1.f, 1.f, 1.f),
+                         glm::vec2(0.75f, 0.5f),
+                         glm::vec2(0.50f, 1.0f));
+
   ShaderBindings score_bindings[10];
   for (unsigned int i = 0; i < 10; ++i) {
-    score_bindings[i].program = &ship_shader_program;
+    score_bindings[i] = tex_shader_bindings_template;
     score_bindings[i].texture = zero123456789score_texture;
     score_bindings[i].vbo = rectangle_vbo(
         glm::vec3(1.f, 1.f, 2.f),
         glm::vec2(((14.f/2.f) + 14.f * i) / 256.f, 0.5f),
         glm::vec2(14.f / 256.f, 1.f));
-    if (Error e =
-      ship_shader_program.uniform_location(
-          "tex", score_bindings[i].texture_uniform) &&
-      ship_shader_program.uniform_location(
-          "transform", score_bindings[i].transform_uniform) &&
-      ship_shader_program.uniform_location(
-          "color", score_bindings[i].color_uniform) &&
-      ship_shader_program.attribute_location(
-          "vertex_pos", score_bindings[i].vertex_pos_attrib) &&
-      ship_shader_program.attribute_location(
-          "tex_coord", score_bindings[i].tex_coord_attrib);
-        !e.ok)
-      return e;
   }
   std::vector<unsigned int> score_digits = {0, 0, 0, 0, 0};
 
@@ -426,22 +414,9 @@ Error run(bool show_thrust) {
   gl::bindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo_elems_id);
   gl::bufferData(GL_ELEMENT_ARRAY_BUFFER, vbo_elems, GL_STATIC_DRAW);
 
-  ShaderBindings player_shader_bindings{
-      .program = &ship_shader_program,
-      .vbo = player_ship_vbo,
-      .texture = ship_texture};
-  if (Error e =
-      ship_shader_program.uniform_location(
-          "tex", player_shader_bindings.texture_uniform) &&
-      ship_shader_program.uniform_location(
-          "transform", player_shader_bindings.transform_uniform) &&
-      ship_shader_program.uniform_location(
-          "color", player_shader_bindings.color_uniform) &&
-      ship_shader_program.attribute_location(
-          "vertex_pos", player_shader_bindings.vertex_pos_attrib) &&
-      ship_shader_program.attribute_location(
-          "tex_coord", player_shader_bindings.tex_coord_attrib);
-      !e.ok) return e;
+  ShaderBindings player_shader_bindings = tex_shader_bindings_template;
+  player_shader_bindings.vbo = player_ship_vbo;
+  player_shader_bindings.texture = ship_texture;
 
   ShaderBindings line_shader_bindings{
     .program = &line_shader_program,
