@@ -51,10 +51,10 @@ Error construct_line_shader(GlProgram& line_shader_program) {
   frag.add_source(R"(
     #version 140
     in vec2 TexCoord;
-    uniform vec3 color;
+    uniform vec4 color;
     out vec4 FragColor;
     void main() {
-      FragColor = vec4(color, 0.5);
+      FragColor = color;
     }
   )");
   if (Error e = frag.compile(); !e.ok) return e;

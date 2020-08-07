@@ -54,7 +54,15 @@ struct Physics {
 };
 
 struct Color {
-  glm::vec3 c;
+  glm::vec4 color;
+
+  Color() { }
+
+  Color(const glm::vec4& c) : color(c) { }
+  Color(float r, float g, float b, float a=1)
+    : color(r, g, b, a) { }
+
+  glm::vec4 get() const { return color; }
 };
 
 struct TimeToDie {
@@ -64,20 +72,20 @@ struct TimeToDie {
 // Planks set a sort of gear for the ship to run in.
 struct Gear {
   float thrust;
-  glm::vec3 color;
+  glm::vec4 color;
 };
 
 // Each higher gear gets brighter and offers more thrust.
 constexpr std::array GEARS{
-  Gear{1.500e-05, {0.1, 0.1, 0.5}},
-  Gear{1.750e-05, {0.1, 0.2, 0.55}},
-  Gear{2.000e-05, {0.2, 0.2, 0.6}},
-  Gear{2.300e-05, {0.2, 0.3, 0.8}},
-  Gear{2.500e-05, {0.3, 0.4, 0.8}},
-  Gear{2.580e-05, {0.4, 0.4, 0.9}},
-  Gear{3.000e-05, {0.5, 0.5, 1.0}},
-  Gear{3.500e-05, {0.6, 0.6, 1.0}},
-  Gear{4.000e-05, {1.0, 1.0, 1.0}}
+  Gear{1.500e-05, {0.1, 0.1, 0.50, 1.f}},
+  Gear{1.750e-05, {0.1, 0.2, 0.55, 1.f}},
+  Gear{2.000e-05, {0.2, 0.2, 0.60, 1.f}},
+  Gear{2.300e-05, {0.2, 0.3, 0.80, 1.f}},
+  Gear{2.500e-05, {0.3, 0.4, 0.80, 1.f}},
+  Gear{2.580e-05, {0.4, 0.4, 0.90, 1.f}},
+  Gear{3.000e-05, {0.5, 0.5, 1.00, 1.f}},
+  Gear{3.500e-05, {0.6, 0.6, 1.00, 1.f}},
+  Gear{4.000e-05, {1.0, 1.0, 1.00, 1.f}}
 };
 
 // Each plank points to the gear it sets the player's ship at.

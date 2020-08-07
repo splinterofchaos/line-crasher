@@ -110,7 +110,7 @@ void TrackGenerator::extend_track(Ecs& ecs) {
                                      head_.rotation + glm::half_pi<float>(),
                                      head_.width},
                            shader_bindings_,
-                           Color{GEARS[current_gear_].color},
+                           Color(GEARS[current_gear_].color),
                            PlankData{current_gear_});
     head_ = strategy_->next_plank();
   }

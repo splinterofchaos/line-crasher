@@ -130,7 +130,8 @@ void draw_object(const Transform& transform,
   }
 
   if (shader_bindings->color_uniform != -1) {
-    gl::uniform3v(shader_bindings->color_uniform, 1, glm::value_ptr(color.c));
+    gl::uniform4v(shader_bindings->color_uniform, 1,
+                  glm::value_ptr(color.get()));
   }
 
   gl::drawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
@@ -254,7 +255,7 @@ void Game::reset() {
   player_ = ecs().write_new_entity(
       Transform{glm::vec3(0.0f), 0, 0},
       Physics{glm::vec3(), glm::vec3(), 0},
-      Color{glm::vec3()},  // unused
+      Color(),  // unused
       player_shader_bindings_);
 
   score_ = 0;
@@ -547,7 +548,8 @@ Error run() {
     fill_score_digits(score_digits, game.score());
     for (unsigned int i = 0; i < score_digits.size(); ++i) {
       Transform score_trans{.pos = glm::vec3(9.f - i, 9.f, 0.f)};
-      draw_object(score_trans, &score_bindings[score_digits[i]], Color{glm::vec3(1.f, 1.f, 1.f)}, glm::vec3(), 0.1f);
+      draw_object(score_trans, &score_bindings[score_digits[i]],
+                  Color(1.f, 1.f, 1.f), glm::vec3(), 0.1f);
     }
 
     gfx.swap_buffers();
