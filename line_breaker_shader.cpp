@@ -22,8 +22,9 @@ Error construct_ship_shader(GlProgram& ship_shader_program)
     in vec2 TexCoord;
     out vec4 FragColor;
     uniform sampler2D tex;
+    uniform vec4 color;
     void main() {
-      FragColor = texture(tex, TexCoord);
+      FragColor = texture(tex, TexCoord) * color;
     }
   )");
   if (Error e = frag.compile(); !e.ok) return e;

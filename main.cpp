@@ -284,7 +284,7 @@ void Game::reset() {
   player_ = ecs().write_new_entity(
       Transform{glm::vec3(0.0f), 0, 0},
       Physics{glm::vec3(), glm::vec3(), 0},
-      Color(),  // unused
+      Color(1.f, 1.f, 1.f, 1.f),
       player_shader_bindings_);
 
   score_ = 0;
@@ -351,6 +351,30 @@ Error run(bool show_thrust) {
       !e.ok)
     return e;
 
+  GLuint press_up_press_r;
+  if (Error e = load_bmp_texture("art/press_up_press_r.bmp", press_up_press_r);
+      !e.ok)
+    return e;
+
+  ShaderBindings press_r_bindings{
+    .program = &ship_shader_program,
+    .texture = press_up_press_r};
+  press_r_bindings.vbo = rectangle_vbo(glm::vec3(1.f, 1.f, 1.f),
+                         glm::vec2(0.75f, 0.5f),
+                         glm::vec2(0.50f, 1.0f));
+  if (Error e =
+      ship_shader_program.uniform_location(
+          "tex", press_r_bindings.texture_uniform) &&
+      ship_shader_program.uniform_location(
+          "transform", press_r_bindings.transform_uniform) &&
+      ship_shader_program.attribute_location(
+          "vertex_pos", press_r_bindings.vertex_pos_attrib) &&
+      ship_shader_program.uniform_location(
+          "color", press_r_bindings.color_uniform) &&
+      ship_shader_program.attribute_location(
+          "tex_coord", press_r_bindings.tex_coord_attrib);
+      !e.ok)
+    return e;
 
   ShaderBindings score_bindings[10];
   for (unsigned int i = 0; i < 10; ++i) {
@@ -365,6 +389,8 @@ Error run(bool show_thrust) {
           "tex", score_bindings[i].texture_uniform) &&
       ship_shader_program.uniform_location(
           "transform", score_bindings[i].transform_uniform) &&
+      ship_shader_program.uniform_location(
+          "color", score_bindings[i].color_uniform) &&
       ship_shader_program.attribute_location(
           "vertex_pos", score_bindings[i].vertex_pos_attrib) &&
       ship_shader_program.attribute_location(
@@ -409,6 +435,8 @@ Error run(bool show_thrust) {
           "tex", player_shader_bindings.texture_uniform) &&
       ship_shader_program.uniform_location(
           "transform", player_shader_bindings.transform_uniform) &&
+      ship_shader_program.uniform_location(
+          "color", player_shader_bindings.color_uniform) &&
       ship_shader_program.attribute_location(
           "vertex_pos", player_shader_bindings.vertex_pos_attrib) &&
       ship_shader_program.attribute_location(
@@ -432,6 +460,7 @@ Error run(bool show_thrust) {
 
   Game game(&player_shader_bindings, &line_shader_bindings);
   game.reset();
+  StopWatch game_end_watch(std::chrono::seconds(2));
 
   // TODO: These should eventually be stored into components, too.
   ShipController ship_controller;
@@ -570,8 +599,6 @@ Error run(bool show_thrust) {
 
     game.track_gen().extend_track(game.ecs());
 
-    time = new_time;
-
     for (auto [id, timer, color] : game.ecs().read_all<Timer, Color>()) {
       if (!timer.expired(time)) {
         color.t = timer.ratio_consumed(time);
@@ -597,7 +624,19 @@ Error run(bool show_thrust) {
                   Color(1.f, 1.f, 1.f), glm::vec3(), 0.1f);
     }
 
+    // Draw "press R" when the player has lost.
+    game_end_watch.start_or_reset(!game.manual_thrusters_enabled() &&
+                                  game.player_thrust() == 0);
+    game_end_watch.consume(new_time - time);
+    draw_object(Transform{.pos = glm::vec3(0, 1.f, 0.f)},
+                &press_r_bindings,
+                Color(glm::vec4(1.f, 1.f, 1.f, 1.f) *
+                      game_end_watch.ratio_consumed()),
+                glm::vec3(), 0.5f);
+
     gfx.swap_buffers();
+
+    time = new_time;
   }
 
   return Error();
