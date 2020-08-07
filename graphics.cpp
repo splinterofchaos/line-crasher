@@ -139,7 +139,7 @@ Graphics::~Graphics() {
 }
 
 Error load_bmp_texture(const char* const filename, GLuint& texture) {
-  SDL_Surface* surface = SDL_LoadBMP("art/ship 512 RGBA8.bmp");
+  SDL_Surface* surface = SDL_LoadBMP(filename);
   if (surface == nullptr) {
     return Error(concat_strings("Failed to load image: ", SDL_GetError()));
   }

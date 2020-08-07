@@ -100,6 +100,7 @@ void draw_object(const Transform& transform,
   static const ShaderBindings* last_bindings = nullptr;
   if (last_bindings != shader_bindings) {
     shader_bindings->program->use();
+    gl::bindTexture(GL_TEXTURE_2D, shader_bindings->texture);
 
     gl::bindBuffer(GL_ARRAY_BUFFER, shader_bindings->vbo);
 
@@ -107,12 +108,13 @@ void draw_object(const Transform& transform,
     gl::vertexAttribPointer<float>(shader_bindings->vertex_pos_attrib, 3,
                                    GL_FALSE, &Vertex::pos);
 
-    if (shader_bindings->tex_coord_attrib != -1) {
+    if (shader_bindings->tex_coord_attrib != -1 && shader_bindings->texture) {
       gl::enableVertexAttribArray(shader_bindings->tex_coord_attrib);
       gl::vertexAttribPointer<float>(shader_bindings->tex_coord_attrib, 2,
                                      GL_FALSE, &Vertex::tex_coord);
     }
   }
+
   last_bindings = shader_bindings;
 
   glm::vec3 visual_pos = transform.pos;
@@ -201,6 +203,8 @@ class Game {
   // arrow keys.
   bool manual_thrusters_enabled_ = true;
 
+  float score_ = 0;
+
 public:
   void reset();
 
@@ -233,6 +237,9 @@ public:
 
   EntityPool& broken_plank_pool() { return broken_plank_pool_; }
   const EntityPool& broken_plank_pool() const { return broken_plank_pool_; }
+
+  void add_score(float x) { score_ += x; }
+  unsigned int score() const { return score_; }
 };
 
 void Game::reset() {
@@ -249,6 +256,43 @@ void Game::reset() {
       Physics{glm::vec3(), glm::vec3(), 0},
       Color{glm::vec3()},  // unused
       player_shader_bindings_);
+
+  score_ = 0;
+}
+
+glm::vec2 flip_x(const glm::vec2& v) { return glm::vec2(-v.x, v.y); }
+glm::vec2 flip_y(const glm::vec2& v) { return glm::vec2(v.x, -v.y); }
+glm::vec2 flip_xy(const glm::vec2& v) { return flip_x(flip_y(v)); }
+
+glm::vec3 flip_x(const glm::vec3& v) { return glm::vec3(-v.x, v.y, v.z); }
+glm::vec3 flip_y(const glm::vec3& v) { return glm::vec3(v.x, -v.y, v.z); }
+glm::vec3 flip_xy(const glm::vec3& v) { return flip_x(flip_y(v)); }
+
+GLuint rectangle_vbo(glm::vec3 dimensions = glm::vec3(1.f, 1.f, 0.f),
+                     glm::vec2 tex_pos = glm::vec2(0.5f, 0.5f),
+                     glm::vec2 tex_size = glm::vec2(1.f, 1.f)) {
+  tex_size.y = -tex_size.y;
+  Vertex vertecies[] = {
+    {-dimensions / 2.f,         tex_pos - tex_size/2.f},
+    {flip_x(-dimensions / 2.f), tex_pos - flip_x(tex_size/2.f)},
+    {dimensions / 2.f,          tex_pos + tex_size/2.f},
+    {flip_x(dimensions) / 2.f,  tex_pos + flip_x(tex_size/2.f)}
+  };
+  GLuint vbo = gl::genBuffer();
+  gl::bindBuffer(GL_ARRAY_BUFFER, vbo);
+  gl::bufferData(GL_ARRAY_BUFFER, vertecies, GL_STATIC_DRAW);
+
+  return vbo;
+}
+
+// Fills `score_digits` with the digits of `score` from least significant to
+// most. For example, if `score = 1234`, `score_digits = [4, 3, 2, 1]`.
+void fill_score_digits(std::vector<unsigned int>& score_digits,
+                       unsigned int score) {
+  for (unsigned int& d : score_digits) {
+    d = score % 10;
+    score = score / 10;
+  }
 }
 
 Error run() {
@@ -266,16 +310,47 @@ Error run() {
   //Initialize clear color
   gl::clearColor(0.f, 0.f, 0.f, 1.f);
 
+  GLuint zero123456789score_texture;
+  if (Error  e = load_bmp_texture("art/0123456789score.bmp",
+                                  zero123456789score_texture);
+      !e.ok)
+    return e;
+
   GLuint ship_texture;
   if (Error e = load_bmp_texture("art/ship 512 RGBA8.bmp", ship_texture);
       !e.ok)
     return e;
 
+
+  ShaderBindings score_bindings[10];
+  for (unsigned int i = 0; i < 10; ++i) {
+    score_bindings[i].program = &ship_shader_program;
+    score_bindings[i].texture = zero123456789score_texture;
+    score_bindings[i].vbo = rectangle_vbo(
+        glm::vec3(1.f, 1.f, 2.f),
+        glm::vec2(((14.f/2.f) + 14.f * i) / 256.f, 0.5f),
+        glm::vec2(14.f / 256.f, 1.f));
+    if (Error e =
+      ship_shader_program.uniform_location(
+          "tex", score_bindings[i].texture_uniform) &&
+      ship_shader_program.uniform_location(
+          "transform", score_bindings[i].transform_uniform) &&
+      ship_shader_program.attribute_location(
+          "vertex_pos", score_bindings[i].vertex_pos_attrib) &&
+      ship_shader_program.attribute_location(
+          "tex_coord", score_bindings[i].tex_coord_attrib);
+        !e.ok)
+      return e;
+  }
+  std::vector<unsigned int> score_digits = {0, 0, 0, 0, 0};
+
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glEnable(GL_BLEND);
 
+  // Unfortunately, for the player ship VBO, its center of rendering isn't the
+  // center of the texutre so we can't use rectangle_vbo().
   //VBO data
-  Vertex quad_vertecies[] = {
+  Vertex player_ship_verts[] = {
     // Position              TexCoords
     {{-SHIP_TAIL_LENGTH, -SHIP_HALF_WIDTH, 0.0f},  {0.0f, 1.0f}},
     {{ SHIP_NOSE_LENGTH, -SHIP_HALF_WIDTH, 0.0f},  {1.0f, 1.0f}},
@@ -283,22 +358,9 @@ Error run() {
     {{-SHIP_TAIL_LENGTH,  SHIP_HALF_WIDTH, 0.0f},  {0.0f, 0.0f}}
   };
 
-  GLuint quad_vbo = gl::genBuffer();
-  gl::bindBuffer(GL_ARRAY_BUFFER, quad_vbo);
-  gl::bufferData(GL_ARRAY_BUFFER, quad_vertecies, GL_DYNAMIC_DRAW);
-
-  Vertex line_vertecies[] = {
-    // Position               TexCoords
-    {{-0.5f, -0.05f, 0.0f},  {0.0f, 0.0f}},
-    {{ 0.5f, -0.05f, 0.0f},  {0.0f, 0.0f}},
-    {{ 0.5f,  0.05f, 0.0f},  {0.0f, 0.0f}},
-    {{-0.5f,  0.05f, 0.0f},  {0.0f, 0.0f}}
-  };
-
-  GLuint line_vbo = gl::genBuffer();
-  gl::bindBuffer(GL_ARRAY_BUFFER, line_vbo);
-  gl::bufferData(GL_ARRAY_BUFFER, line_vertecies, GL_DYNAMIC_DRAW);
-  bool flip = false;
+  GLuint player_ship_vbo = gl::genBuffer();
+  gl::bindBuffer(GL_ARRAY_BUFFER, player_ship_vbo);
+  gl::bufferData(GL_ARRAY_BUFFER, player_ship_verts, GL_STATIC_DRAW);
 
   //IBO data
   GLuint vbo_elems[] = {0, 1, 2,
@@ -308,7 +370,10 @@ Error run() {
   gl::bindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo_elems_id);
   gl::bufferData(GL_ELEMENT_ARRAY_BUFFER, vbo_elems, GL_STATIC_DRAW);
 
-  ShaderBindings player_shader_bindings(&ship_shader_program, quad_vbo);
+  ShaderBindings player_shader_bindings{
+      .program = &ship_shader_program,
+      .vbo = player_ship_vbo,
+      .texture = ship_texture};
   if (Error e =
       ship_shader_program.uniform_location(
           "tex", player_shader_bindings.texture_uniform) &&
@@ -320,7 +385,9 @@ Error run() {
           "tex_coord", player_shader_bindings.tex_coord_attrib);
       !e.ok) return e;
 
-  ShaderBindings line_shader_bindings(&line_shader_program, line_vbo);
+  ShaderBindings line_shader_bindings{
+    .program = &line_shader_program,
+    .vbo = rectangle_vbo(glm::vec3(1.f, 0.05f, 0.f))};
   line_shader_program.use();
   if (Error e =
       line_shader_program.uniform_location(
@@ -366,7 +433,6 @@ Error run() {
               control = &ship_controller.rotate_clockwise; break;
             case 'r': game.reset(); break;
             case 'q': keep_going = false; break;
-            case ' ': flip = !flip; break;
           }
 
           if (control) *control = e.key.type == SDL_KEYDOWN;
@@ -453,6 +519,7 @@ Error run() {
                                line_points.b, crash_point, 1 - u,
                                line_transform, ship_physics.v,
                                line_shader_bindings, color, time);
+            game.add_score(TRACK_SPACING);
             break;
           }
         }
@@ -471,9 +538,16 @@ Error run() {
 
     gl::clear();
 
-    for (const auto& [id, transform, color, shader_bindings] :
+    for (const auto& [_, transform, color, shader_bindings] :
          game.ecs().read_all<Transform, Color, ShaderBindings*>()) {
       draw_object(transform, shader_bindings, color, camera_offset, zoom);
+    }
+
+    // Draw the score.
+    fill_score_digits(score_digits, game.score());
+    for (unsigned int i = 0; i < score_digits.size(); ++i) {
+      Transform score_trans{.pos = glm::vec3(9.f - i, 9.f, 0.f)};
+      draw_object(score_trans, &score_bindings[score_digits[i]], Color{glm::vec3(1.f, 1.f, 1.f)}, glm::vec3(), 0.1f);
     }
 
     gfx.swap_buffers();

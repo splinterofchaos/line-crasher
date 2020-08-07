@@ -11,6 +11,7 @@ struct ShaderBindings {
   GlProgram* program;
 
   GLuint vbo;
+  GLuint texture = 0;
 
   GLint texture_uniform = -1;
   GLint transform_uniform = -1;
@@ -19,8 +20,4 @@ struct ShaderBindings {
 
   GLint vertex_pos_attrib = -1;
   GLint tex_coord_attrib = -1;
-
-  ShaderBindings() { }
-  ShaderBindings(GlProgram* program, GLuint vbo)
-    : program(program), vbo(vbo) { }
 };
