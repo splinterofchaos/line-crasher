@@ -178,7 +178,7 @@ void write_broken_plank(
                 plank_transform.rotation,
                 plank_transform.length * u},
       Physics{glm::vec3(), v, rotational_vel},
-      TimeToDie{now, now + BROKEN_PLANK_LIFETIME},
+      Timer(now, BROKEN_PLANK_LIFETIME),
       &shader_bindings,
       Color({color.get(), glm::vec4()}));
 }
@@ -203,7 +203,7 @@ void write_flame(
                 ship_transform.rotation + glm::pi<float>(),
                 0.05f},
       Physics{glm::vec3(), v, ship_physics.rotation_velocity},
-      TimeToDie{now, now + FLAME_LIFETIME},
+      Timer(now, FLAME_LIFETIME),
       &shader_bindings,
       Color({glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
              glm::vec4(1.0f, 0.3f, 0.3f, 1.0f),
@@ -572,10 +572,9 @@ Error run(bool show_thrust) {
 
     time = new_time;
 
-    for (auto [id, ttd, color] : game.ecs().read_all<TimeToDie, Color>()) {
-      if (ttd.time_to_die > time) {
-        color.t = float((time - ttd.time_born).count()) /
-                  float((ttd.time_to_die - ttd.time_born).count());
+    for (auto [id, timer, color] : game.ecs().read_all<Timer, Color>()) {
+      if (!timer.expired(time)) {
+        color.t = timer.ratio_consumed(time);
       } else {
         game.broken_plank_pool().deactivate(game.ecs(), id);
       }

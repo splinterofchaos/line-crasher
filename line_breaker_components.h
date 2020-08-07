@@ -6,6 +6,7 @@
 #include "ecs.h"
 #include "line_breaker_shader.h"  // For ShaderBindings
 #include "math.h"
+#include "timer.h"
 
 // The coefficient of negative acceleration proportionate to velocity.
 // Similar to air resistance + friction.
@@ -81,11 +82,6 @@ struct Color {
   }
 };
 
-struct TimeToDie {
-  std::chrono::high_resolution_clock::time_point time_born;
-  std::chrono::high_resolution_clock::time_point time_to_die;
-};
-
 // Planks set a sort of gear for the ship to run in.
 struct Gear {
   float thrust;
@@ -111,7 +107,7 @@ struct PlankData {
   std::size_t gear;
 };
 
-using Ecs = EntityComponentSystem<Transform, Physics, TimeToDie,
+using Ecs = EntityComponentSystem<Transform, Physics, Timer,
                                   ShaderBindings*, Color,
                                   PlankData>;
 
