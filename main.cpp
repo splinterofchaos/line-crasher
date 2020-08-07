@@ -178,9 +178,9 @@ void write_broken_plank(
                 plank_transform.rotation,
                 plank_transform.length * u},
       Physics{glm::vec3(), v, rotational_vel},
-      TimeToDie{now + BROKEN_PLANK_LIFETIME},
+      TimeToDie{now, now + BROKEN_PLANK_LIFETIME},
       &shader_bindings,
-      Color(color));
+      Color({color.get(), glm::vec4()}));
 }
 
 
@@ -531,9 +531,14 @@ Error run() {
 
     time = new_time;
 
-    for (auto [id, ttd] : game.ecs().read_all<TimeToDie>())
-      if (ttd.time_to_die <= time)
+    for (auto [id, ttd, color] : game.ecs().read_all<TimeToDie, Color>()) {
+      if (ttd.time_to_die > time) {
+        color.t = float((time - ttd.time_born).count()) /
+                  float((ttd.time_to_die - ttd.time_born).count());
+      } else {
         game.broken_plank_pool().deactivate(game.ecs(), id);
+      }
+    }
 
     game.ecs().deleted_marked_ids();
 

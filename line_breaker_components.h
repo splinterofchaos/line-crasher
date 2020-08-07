@@ -54,18 +54,34 @@ struct Physics {
 };
 
 struct Color {
-  glm::vec4 color;
+  // The color can change over time. If colors.size() is one or t is zero,
+  // the color is colors[0]. If t = 1, colors[colors.size-1], and so on. If
+  // t is between to indexes, the colors are mixed.
+  std::vector<glm::vec4> colors;
+  float t = 0;
 
   Color() { }
 
-  Color(const glm::vec4& c) : color(c) { }
+  Color(const glm::vec4& c) : colors{{c}} { }
   Color(float r, float g, float b, float a=1)
-    : color(r, g, b, a) { }
+    : Color(glm::vec4(r, g, b, a)) { }
 
-  glm::vec4 get() const { return color; }
+  Color(std::initializer_list<glm::vec4> il) : colors(il) { }
+
+  glm::vec4 get() const {
+    // fi, or the "floating index" ranges between [0, colors.size - 1).
+    float fi = t * (colors.size() - 1);
+    // i and j represent the lower and upper index respectively.
+    unsigned int i = std::floor(fi);
+    unsigned int j = std::min(colors.size() - 1.f, std::ceil(fi));
+    // Then u is the amount we should mix the preceeeding or proceeding color.
+    float u = fi - i;
+    return glm::mix(colors[i], colors[j], u);
+  }
 };
 
 struct TimeToDie {
+  std::chrono::high_resolution_clock::time_point time_born;
   std::chrono::high_resolution_clock::time_point time_to_die;
 };
 
