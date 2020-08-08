@@ -361,13 +361,10 @@ void Game::reset() {
 // most. For example, if `score = 1234`, `score_digits = [4, 3, 2, 1]`.
 void fill_score_digits(std::vector<unsigned int>& score_digits,
                        unsigned int score) {
-  auto it = score_digits.begin();
+  score_digits.clear();
+
   while (score) {
-    unsigned int d = score % 10;
-    if (it < score_digits.end())
-      *it++ = d;
-    else
-      score_digits.push_back(d);
+    score_digits.push_back(score % 10);
     score = score / 10;
   }
 
