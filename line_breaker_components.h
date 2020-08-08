@@ -62,15 +62,20 @@ struct Color {
   std::vector<glm::vec4> colors;
   float t = 0;
 
-  Color() { }
+  // TODO: Debug why we get a segfault if we don't include this copy
+  // constructor which should be auto-generated. Perhaps we're disabling a
+  // buggy move or assignment operator?
+  Color(const Color& c) {
+    colors = c.colors;
+  }
 
-  Color(const glm::vec4& c) : colors{{c}} { }
-  Color(float r, float g, float b, float a=1)
-    : Color(glm::vec4(r, g, b, a)) { }
-
+  Color(const glm::vec4& c) : colors({c}) { }
+  Color(float r, float g, float b, float a=1) : Color(glm::vec4(r,g,b,a)) { }
   Color(std::initializer_list<glm::vec4> il) : colors(il) { }
 
   glm::vec4 get() const {
+    assert(colors.size());
+    if (!colors.size()) return glm::vec4(1, 0, 1, 1);
     // fi, or the "floating index" ranges between [0, colors.size - 1).
     float fi = t * (colors.size() - 1);
     // i and j represent the lower and upper index respectively.
