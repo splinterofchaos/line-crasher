@@ -8,9 +8,11 @@ Error contruct_textured_shader(GlProgram& tex_shader_program)
     in vec3 vertex_pos;
     in vec2 tex_coord;
     uniform mat4 transform;
+    uniform float length;
     out vec2 TexCoord;
     void main() {
-      gl_Position = transform * vec4(vertex_pos, 1);
+      gl_Position = transform * vec4(vertex_pos.x * length, vertex_pos.y,
+                                     vertex_pos.z, 1);
       TexCoord = tex_coord;
     }
   )");

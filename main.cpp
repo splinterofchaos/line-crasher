@@ -25,8 +25,8 @@
 #include "math.h"
 #include "random.h"
 
-constexpr int WINDOW_HEIGHT = 800;
-constexpr int WINDOW_WIDTH = 800;
+constexpr int WINDOW_HEIGHT = 1000;
+constexpr int WINDOW_WIDTH = 1000;
 
 // Target 60 FPS and do physics updates four times as often.
 constexpr auto TIME_STEP = std::chrono::milliseconds(1000) / (60 * 4);
@@ -125,9 +125,7 @@ void draw_object(const Transform& transform,
       glm::value_ptr(transformation(visual_pos, transform.rotation,
                                     zoom)));
 
-  if (shader_bindings->length_uniform != -1) {
-    gl::uniform(shader_bindings->length_uniform, transform.length);
-  }
+  gl::uniform(shader_bindings->length_uniform, transform.length);
 
   if (shader_bindings->color_uniform != -1) {
     gl::uniform4v(shader_bindings->color_uniform, 1,
@@ -201,7 +199,7 @@ void write_flame(
       ecs,
       Transform{(ship_points.left_back + ship_points.right_back) / 2.f,
                 ship_transform.rotation + glm::pi<float>(),
-                0.05f},
+                PLANK_WIDTH},
       Physics{glm::vec3(), v, ship_physics.rotation_velocity},
       Timer(now, FLAME_LIFETIME),
       &shader_bindings,
@@ -212,6 +210,9 @@ void write_flame(
              glm::vec4()}));
 }
 
+// When the game starts, we draw N planks to fill a width of 1 screen units.
+// Since we draw them at once plank's width, N * PLANK_WIDTH = 1.
+static constexpr unsigned int N_UP_PLANKS = 1 / PLANK_WIDTH;
 
 // Holds much of the game logic state allowing us to do operations like reset
 // it to the start.
@@ -229,6 +230,9 @@ class Game {
   ShaderBindings* player_shader_bindings_;
   ShaderBindings* line_shader_bindings_;
 
+  // This one's special because there are actually N_UP_PLANKS of them.
+  ShaderBindings* press_up_bindings_;
+
   // If true, the player may control their thrusters with up and down on the
   // arrow keys.
   bool manual_thrusters_enabled_ = true;
@@ -239,10 +243,12 @@ public:
   void reset();
 
   Game(ShaderBindings* player_shader_bindings,
-       ShaderBindings* line_shader_bindings)
+       ShaderBindings* line_shader_bindings,
+       ShaderBindings* press_up_bindings)
     : track_gen_(line_shader_bindings),
       player_shader_bindings_(player_shader_bindings),
-      line_shader_bindings_(line_shader_bindings)
+      line_shader_bindings_(line_shader_bindings),
+      press_up_bindings_(press_up_bindings)
   {
     reset();
   }
@@ -282,12 +288,22 @@ void Game::reset() {
   manual_thrusters_enabled_ = true;
   player_thrust_ = 0;
   player_ = ecs().write_new_entity(
-      Transform{glm::vec3(0.0f), 0, 0},
+      Transform{glm::vec3(-1, 0, 0), 0, 1},
       Physics{glm::vec3(), glm::vec3(), 0},
       Color(1.f, 1.f, 1.f, 1.f),
       player_shader_bindings_);
 
   score_ = 0;
+
+  // Show the "PRESS UP" button.
+  for (unsigned int i = 0; i < N_UP_PLANKS; ++i) {
+    ecs().write_new_entity(
+        Transform{glm::vec3(1 + i * PLANK_WIDTH, 0.f, 0.f),
+                  glm::half_pi<float>(), 2},
+        &press_up_bindings_[i],
+        Color(1.f, 1.f, 1.f, 1.f),
+        PlankData{GEARS.size()});
+  }
 }
 
 glm::vec2 flip_x(const glm::vec2& v) { return glm::vec2(-v.x, v.y); }
@@ -362,6 +378,8 @@ Error run(bool show_thrust) {
           "tex", tex_shader_bindings_template.texture_uniform) &&
       tex_shader_program.uniform_location(
           "transform", tex_shader_bindings_template.transform_uniform) &&
+      tex_shader_program.uniform_location(
+          "length", tex_shader_bindings_template.length_uniform) &&
       tex_shader_program.attribute_location(
           "vertex_pos", tex_shader_bindings_template.vertex_pos_attrib) &&
       tex_shader_program.uniform_location(
@@ -374,8 +392,23 @@ Error run(bool show_thrust) {
   ShaderBindings press_r_bindings = tex_shader_bindings_template;
   press_r_bindings.texture = press_up_press_r;
   press_r_bindings.vbo = rectangle_vbo(glm::vec3(1.f, 1.f, 1.f),
-                         glm::vec2(0.75f, 0.5f),
-                         glm::vec2(0.50f, 1.0f));
+                                       glm::vec2(0.75f, 0.5f),
+                                       glm::vec2(0.50f, 1.0f));
+
+  // These bindings represent the "PRESS UP" prompt.
+  // The weird thin going on here is that when we render a plank, we draw it
+  // with a pi/2 or 90 degree rotation so we're actually striping the texture
+  // down to up.
+  ShaderBindings press_up_bindings[N_UP_PLANKS];
+  for (unsigned int i = 0; i < N_UP_PLANKS; ++i) {
+    press_up_bindings[i] = tex_shader_bindings_template;
+    press_up_bindings[i].texture = press_up_press_r;
+
+    press_up_bindings[i].vbo = rectangle_vbo(
+        glm::vec3(1.f,   PLANK_WIDTH, 0.f),
+        glm::vec2(0.25f, PLANK_WIDTH / 2.f + i * PLANK_WIDTH),
+        glm::vec2(0.5f,  PLANK_WIDTH));
+  }
 
   ShaderBindings score_bindings[10];
   for (unsigned int i = 0; i < 10; ++i) {
@@ -420,7 +453,7 @@ Error run(bool show_thrust) {
 
   ShaderBindings line_shader_bindings{
     .program = &line_shader_program,
-    .vbo = rectangle_vbo(glm::vec3(1.f, 0.05f, 0.f))};
+    .vbo = rectangle_vbo(glm::vec3(1.f, PLANK_WIDTH, 0.f))};
   line_shader_program.use();
   if (Error e =
       line_shader_program.uniform_location(
@@ -433,7 +466,7 @@ Error run(bool show_thrust) {
           "vertex_pos", line_shader_bindings.vertex_pos_attrib);
       !e.ok) return e;
 
-  Game game(&player_shader_bindings, &line_shader_bindings);
+  Game game(&player_shader_bindings, &line_shader_bindings, press_up_bindings);
   game.reset();
   StopWatch game_end_watch(std::chrono::seconds(2));
 
@@ -542,8 +575,8 @@ Error run(bool show_thrust) {
                     line_shader_bindings, time);
       }
 
-      for (const auto& [id, line_transform, line_data, color] :
-           game.ecs().read_all<Transform, PlankData, Color>()) {
+      for (const auto& [id, line_transform, line_data, color, shader_bindings] :
+           game.ecs().read_all<Transform, PlankData, Color, ShaderBindings*>()) {
         // Bounds check first.
         if (glm::distance(line_transform.pos, ship_points.center_of_gravity) <
             line_transform.length + SHIP_LENGTH &&
@@ -551,21 +584,25 @@ Error run(bool show_thrust) {
           LinePoints line_points(line_transform);
           if (auto [u, intersects] = intersection(ship_points, line_points);
               intersects) {
-            game.set_manual_thrusters_enabled(false);
+            // Some planks use an invalid gear to indicate they do not control
+            // the thrust.
+            if (line_data.gear < GEARS.size()) {
+              game.set_manual_thrusters_enabled(false);
+              game.set_player_thrust(GEARS[line_data.gear].thrust);
+              game.add_score(TRACK_SPACING);
+            }
             game.track_gen().delete_plank(game.ecs(), id);
-            game.set_player_thrust(GEARS[line_data.gear].thrust);
 
             auto crash_point =
               line_points.a + (line_points.b - line_points.a) * u;
             write_broken_plank(game.ecs(), game.broken_plank_pool(),
                                line_points.a, crash_point, u,
                                line_transform, ship_physics.v,
-                               line_shader_bindings, color, time);
+                               *shader_bindings, color, time);
             write_broken_plank(game.ecs(), game.broken_plank_pool(),
                                line_points.b, crash_point, 1 - u,
                                line_transform, ship_physics.v,
-                               line_shader_bindings, color, time);
-            game.add_score(TRACK_SPACING);
+                               *shader_bindings, color, time);
             break;
           }
         }
@@ -594,7 +631,7 @@ Error run(bool show_thrust) {
     // Draw the score.
     fill_score_digits(score_digits, game.score());
     for (unsigned int i = 0; i < score_digits.size(); ++i) {
-      Transform score_trans{.pos = glm::vec3(9.f - i, 9.f, 0.f)};
+      Transform score_trans{.pos = glm::vec3(9.f - i, 9.f, 0.f), .length = 1};
       draw_object(score_trans, &score_bindings[score_digits[i]],
                   Color(1.f, 1.f, 1.f), glm::vec3(), 0.1f);
     }
@@ -603,7 +640,7 @@ Error run(bool show_thrust) {
     game_end_watch.start_or_reset(!game.manual_thrusters_enabled() &&
                                   game.player_thrust() == 0);
     game_end_watch.consume(new_time - time);
-    draw_object(Transform{.pos = glm::vec3(0, 1.f, 0.f)},
+    draw_object(Transform{.pos = glm::vec3(0, 1.f, 0.f), .length = 1},
                 &press_r_bindings,
                 Color(glm::vec4(1.f, 1.f, 1.f, 1.f) *
                       game_end_watch.ratio_consumed()),
