@@ -143,6 +143,31 @@ std::chrono::milliseconds time_diff(
       new_time - old_time);
 }
 
+glm::vec2 flip_x(const glm::vec2& v) { return glm::vec2(-v.x, v.y); }
+glm::vec2 flip_y(const glm::vec2& v) { return glm::vec2(v.x, -v.y); }
+glm::vec2 flip_xy(const glm::vec2& v) { return flip_x(flip_y(v)); }
+
+glm::vec3 flip_x(const glm::vec3& v) { return glm::vec3(-v.x, v.y, v.z); }
+glm::vec3 flip_y(const glm::vec3& v) { return glm::vec3(v.x, -v.y, v.z); }
+glm::vec3 flip_xy(const glm::vec3& v) { return flip_x(flip_y(v)); }
+
+GLuint rectangle_vbo(glm::vec3 dimensions = glm::vec3(1.f, 1.f, 0.f),
+                     glm::vec2 tex_pos = glm::vec2(0.5f, 0.5f),
+                     glm::vec2 tex_size = glm::vec2(1.f, 1.f)) {
+  tex_size.y = -tex_size.y;
+  Vertex vertecies[] = {
+    {-dimensions / 2.f,         tex_pos - tex_size/2.f},
+    {flip_x(-dimensions / 2.f), tex_pos - flip_x(tex_size/2.f)},
+    {dimensions / 2.f,          tex_pos + tex_size/2.f},
+    {flip_x(dimensions) / 2.f,  tex_pos + flip_x(tex_size/2.f)}
+  };
+  GLuint vbo = gl::genBuffer();
+  gl::bindBuffer(GL_ARRAY_BUFFER, vbo);
+  gl::bufferData(GL_ARRAY_BUFFER, vertecies, GL_STATIC_DRAW);
+
+  return vbo;
+}
+
 // When the ship hits a plank, it will break it into two pieces. Adds one of
 // them to the ECS.
 void write_broken_plank(
@@ -214,6 +239,32 @@ void write_flame(
 // Since we draw them at once plank's width, N * PLANK_WIDTH = 1.
 static constexpr unsigned int N_UP_PLANKS = 1 / PLANK_WIDTH;
 
+class Stripes {
+  std::vector<ShaderBindings> bindings_;
+
+public:
+  Stripes(const ShaderBindings& bindings_template, GLuint texture,
+          unsigned int count, float min_x, float max_x) {
+    // The weird thin going on here is that when we render a plank, we draw it
+    // with a pi/2 or 90 degree rotation so we're actually striping the texture
+    // down to up.
+    for (unsigned int i = 0; i < count; ++i) {
+      bindings_.push_back(bindings_template);
+      ShaderBindings& sb = bindings_.back();
+
+      sb.texture = texture;
+
+      sb.vbo = rectangle_vbo(
+          glm::vec3(1, PLANK_WIDTH, 0),
+          glm::vec3((min_x + max_x) / 2, PLANK_WIDTH / 2.f + i * PLANK_WIDTH, 0),
+          glm::vec3(max_x - min_x, PLANK_WIDTH, 0));
+    }
+  }
+
+  const ShaderBindings& operator[](std::size_t i) const { return bindings_[i]; }
+  ShaderBindings& operator[](std::size_t i) { return bindings_[i]; }
+};
+
 // Holds much of the game logic state allowing us to do operations like reset
 // it to the start.
 class Game {
@@ -231,7 +282,7 @@ class Game {
   ShaderBindings* line_shader_bindings_;
 
   // This one's special because there are actually N_UP_PLANKS of them.
-  ShaderBindings* press_up_bindings_;
+  Stripes& press_up_stripes_;
 
   // If true, the player may control their thrusters with up and down on the
   // arrow keys.
@@ -244,11 +295,11 @@ public:
 
   Game(ShaderBindings* player_shader_bindings,
        ShaderBindings* line_shader_bindings,
-       ShaderBindings* press_up_bindings)
+       Stripes& press_up_stripes)
     : track_gen_(line_shader_bindings),
       player_shader_bindings_(player_shader_bindings),
       line_shader_bindings_(line_shader_bindings),
-      press_up_bindings_(press_up_bindings)
+      press_up_stripes_(press_up_stripes)
   {
     reset();
   }
@@ -300,35 +351,10 @@ void Game::reset() {
     ecs().write_new_entity(
         Transform{glm::vec3(1 + i * PLANK_WIDTH, 0.f, 0.f),
                   glm::half_pi<float>(), 2},
-        &press_up_bindings_[i],
+        &press_up_stripes_[i],
         Color(1.f, 1.f, 1.f, 1.f),
         PlankData{GEARS.size()});
   }
-}
-
-glm::vec2 flip_x(const glm::vec2& v) { return glm::vec2(-v.x, v.y); }
-glm::vec2 flip_y(const glm::vec2& v) { return glm::vec2(v.x, -v.y); }
-glm::vec2 flip_xy(const glm::vec2& v) { return flip_x(flip_y(v)); }
-
-glm::vec3 flip_x(const glm::vec3& v) { return glm::vec3(-v.x, v.y, v.z); }
-glm::vec3 flip_y(const glm::vec3& v) { return glm::vec3(v.x, -v.y, v.z); }
-glm::vec3 flip_xy(const glm::vec3& v) { return flip_x(flip_y(v)); }
-
-GLuint rectangle_vbo(glm::vec3 dimensions = glm::vec3(1.f, 1.f, 0.f),
-                     glm::vec2 tex_pos = glm::vec2(0.5f, 0.5f),
-                     glm::vec2 tex_size = glm::vec2(1.f, 1.f)) {
-  tex_size.y = -tex_size.y;
-  Vertex vertecies[] = {
-    {-dimensions / 2.f,         tex_pos - tex_size/2.f},
-    {flip_x(-dimensions / 2.f), tex_pos - flip_x(tex_size/2.f)},
-    {dimensions / 2.f,          tex_pos + tex_size/2.f},
-    {flip_x(dimensions) / 2.f,  tex_pos + flip_x(tex_size/2.f)}
-  };
-  GLuint vbo = gl::genBuffer();
-  gl::bindBuffer(GL_ARRAY_BUFFER, vbo);
-  gl::bufferData(GL_ARRAY_BUFFER, vertecies, GL_STATIC_DRAW);
-
-  return vbo;
 }
 
 // Fills `score_digits` with the digits of `score` from least significant to
@@ -395,21 +421,6 @@ Error run(bool show_thrust) {
                                        glm::vec2(0.75f, 0.5f),
                                        glm::vec2(0.50f, 1.0f));
 
-  // These bindings represent the "PRESS UP" prompt.
-  // The weird thin going on here is that when we render a plank, we draw it
-  // with a pi/2 or 90 degree rotation so we're actually striping the texture
-  // down to up.
-  ShaderBindings press_up_bindings[N_UP_PLANKS];
-  for (unsigned int i = 0; i < N_UP_PLANKS; ++i) {
-    press_up_bindings[i] = tex_shader_bindings_template;
-    press_up_bindings[i].texture = press_up_press_r;
-
-    press_up_bindings[i].vbo = rectangle_vbo(
-        glm::vec3(1.f,   PLANK_WIDTH, 0.f),
-        glm::vec2(0.25f, PLANK_WIDTH / 2.f + i * PLANK_WIDTH),
-        glm::vec2(0.5f,  PLANK_WIDTH));
-  }
-
   ShaderBindings score_bindings[10];
   for (unsigned int i = 0; i < 10; ++i) {
     score_bindings[i] = tex_shader_bindings_template;
@@ -466,7 +477,9 @@ Error run(bool show_thrust) {
           "vertex_pos", line_shader_bindings.vertex_pos_attrib);
       !e.ok) return e;
 
-  Game game(&player_shader_bindings, &line_shader_bindings, press_up_bindings);
+  Stripes press_up_stripes(tex_shader_bindings_template, press_up_press_r,
+                           1 / PLANK_WIDTH, 0, 0.5);
+  Game game(&player_shader_bindings, &line_shader_bindings, press_up_stripes);
   game.reset();
   StopWatch game_end_watch(std::chrono::seconds(2));
 
