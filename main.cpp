@@ -361,10 +361,17 @@ void Game::reset() {
 // most. For example, if `score = 1234`, `score_digits = [4, 3, 2, 1]`.
 void fill_score_digits(std::vector<unsigned int>& score_digits,
                        unsigned int score) {
-  for (unsigned int& d : score_digits) {
-    d = score % 10;
+  auto it = score_digits.begin();
+  while (score) {
+    unsigned int d = score % 10;
+    if (it < score_digits.end())
+      *it++ = d;
+    else
+      score_digits.push_back(d);
     score = score / 10;
   }
+
+  if (score_digits.empty()) score_digits.push_back(0);
 }
 
 Error run(bool show_thrust) {
@@ -430,7 +437,7 @@ Error run(bool show_thrust) {
         glm::vec2(((14.f/2.f) + 14.f * i) / 256.f, 0.5f),
         glm::vec2(14.f / 256.f, 1.f));
   }
-  std::vector<unsigned int> score_digits = {0, 0, 0, 0, 0};
+  std::vector<unsigned int> score_digits;
 
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glEnable(GL_BLEND);
@@ -641,19 +648,24 @@ Error run(bool show_thrust) {
       draw_object(transform, shader_bindings, color, camera_offset, zoom);
     }
 
+    game_end_watch.start_or_reset(!game.manual_thrusters_enabled() &&
+                                  game.player_thrust() == 0);
+    game_end_watch.consume(new_time - time);
+
     // Draw the score.
     fill_score_digits(score_digits, game.score());
     for (unsigned int i = 0; i < score_digits.size(); ++i) {
-      Transform score_trans{.pos = glm::vec3(9.f - i, 9.f, 0.f), .length = 1};
+      glm::vec3 pos = glm::mix(
+          glm::vec3(9.f - i, -9.f, 0.f),
+          glm::vec3((score_digits.size() - 1.f) / 2.f - i, -4, 0),
+          game_end_watch.ratio_consumed() * game_end_watch.ratio_consumed());
+      Transform score_trans{.pos = pos, .length = 1};
       draw_object(score_trans, &score_bindings[score_digits[i]],
                   Color(1.f, 1.f, 1.f), glm::vec3(), 0.1f);
     }
 
     // Draw "press R" when the player has lost.
-    game_end_watch.start_or_reset(!game.manual_thrusters_enabled() &&
-                                  game.player_thrust() == 0);
-    game_end_watch.consume(new_time - time);
-    draw_object(Transform{.pos = glm::vec3(0, 1.f, 0.f), .length = 1},
+    draw_object(Transform{.pos = glm::vec3(0, 1.2f, 0.f), .length = 1},
                 &press_r_bindings,
                 Color(glm::vec4(1.f, 1.f, 1.f, 1.f) *
                       game_end_watch.ratio_consumed()),
