@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <memory>
 
@@ -649,6 +650,10 @@ Error run(bool hide_thrust) {
                     line_shader_bindings, time);
       }
 
+      // We can't write new planks in the following loop since we're also
+      // iterating through all the planks. Delay this until the end.
+      std::vector<std::function<void()>> deferred_write_plank;
+
       for (const auto& [id, line_transform, line_data, color, shader_bindings] :
            game.ecs().read_all<Transform, PlankData, Color, ShaderBindings*>()) {
         // Bounds check first.
@@ -669,20 +674,25 @@ Error run(bool hide_thrust) {
             }
             game.track_gen().delete_plank(game.ecs(), id);
 
-            auto crash_point =
-              line_points.a + (line_points.b - line_points.a) * u;
-            write_broken_plank(game.ecs(), game.broken_plank_pool(),
-                               line_points.a, crash_point, u,
-                               line_transform, ship_physics.v,
-                               *shader_bindings, color, time);
-            write_broken_plank(game.ecs(), game.broken_plank_pool(),
-                               line_points.b, crash_point, 1 - u,
-                               line_transform, ship_physics.v,
-                               *shader_bindings, color, time);
+            deferred_write_plank.push_back([=, &game]{
+              auto crash_point =
+                line_points.a + (line_points.b - line_points.a) * u;
+              write_broken_plank(game.ecs(), game.broken_plank_pool(),
+                                 line_points.a, crash_point, u,
+                                 line_transform, ship_physics.v,
+                                 *shader_bindings, color, time);
+              write_broken_plank(game.ecs(), game.broken_plank_pool(),
+                                 line_points.b, crash_point, 1 - u,
+                                 line_transform, ship_physics.v,
+                                 *shader_bindings, color, time);
+            });
             break;
           }
         }
       }
+
+      for (std::function<void()>& f : deferred_write_plank) f();
+      deferred_write_plank.clear();
     }
 
     game.track_gen().extend_track(game.ecs());
