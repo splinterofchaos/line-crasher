@@ -1,5 +1,7 @@
 # Line Breaker
 
+See on itch.io: https://splinterofchaos.itch.io/line-breaker
+
 Line Breaker is a silly little game where you play as a ship and you have to
 fly along a track and stay on it as long as possible. Before getting on, you
 can control your ship with the arrow keys, UP and DOWN to adjust the throttle.
