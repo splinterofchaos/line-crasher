@@ -58,7 +58,7 @@ public:
   constexpr static float MAX_WIDTH = SHIP_HALF_WIDTH * 2 * 10;
   constexpr static float MIN_WIDTH = SHIP_HALF_WIDTH * 2 * 1;
   constexpr static float SAFE_WIDTH = MIN_WIDTH * 3;
-  constexpr static unsigned int MAX_PLANKS = 200;
+  constexpr static unsigned int MAX_PLANKS = 50 / TRACK_SPACING;
 
   enum Strategy {
     CIRCULAR_CURVE,
