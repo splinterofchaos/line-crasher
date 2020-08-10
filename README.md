@@ -18,7 +18,7 @@ Press 'q' to exit or just close the window.
 
 On Ubuntu Linux, install the necessary packages like so:
 ```bash
-sudo apt install libsdl2-dev libglm-dev libglew-dev
+sudo apt install libsdl2-dev libsdl2-mixer-dev libglm-dev libglew-dev
 ```
 Then compile and run the game:
 ```bash
