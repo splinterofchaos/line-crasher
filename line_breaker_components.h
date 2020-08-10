@@ -98,14 +98,11 @@ struct Gear {
 // Each higher gear gets brighter and offers more thrust.
 constexpr std::array GEARS{
   Gear{1.500e-05, {0.1, 0.1, 0.50, 1.f}},
-  Gear{1.750e-05, {0.1, 0.2, 0.55, 1.f}},
-  Gear{2.000e-05, {0.2, 0.2, 0.60, 1.f}},
-  Gear{2.300e-05, {0.2, 0.3, 0.80, 1.f}},
-  Gear{2.500e-05, {0.3, 0.4, 0.80, 1.f}},
-  Gear{2.580e-05, {0.4, 0.4, 0.90, 1.f}},
-  Gear{3.000e-05, {0.5, 0.5, 1.00, 1.f}},
-  Gear{3.500e-05, {0.6, 0.6, 1.00, 1.f}},
-  Gear{4.000e-05, {1.0, 1.0, 1.00, 1.f}}
+  Gear{2.050e-05, {0.1, 0.2, 0.55, 1.f}},
+  Gear{2.500e-05, {0.2, 0.2, 0.60, 1.f}},
+  Gear{3.000e-05, {0.2, 0.3, 0.80, 1.f}},
+  Gear{3.500e-05, {0.3, 0.3, 0.80, 1.f}},
+  Gear{4.000e-05, {0.4, 0.4, 0.80, 1.f}},
 };
 
 // Each plank points to the gear it sets the player's ship at.

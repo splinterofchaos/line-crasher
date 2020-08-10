@@ -49,7 +49,7 @@ public:
 
     // Each turn should have an angle of between 45 and 90 degrees.
     float angle = (random_int(50, 101) / 100.f) * glm::half_pi<float>();
-    length_ = std::abs(angle / theta_) + 1;
+    length_ = std::abs(angle / theta_);
 
     center_ = start_.pos +
       radial_vec(start_.rotation + glm::half_pi<float>() * dir_, radius_);
@@ -84,7 +84,7 @@ void TrackGenerator::set_strategy(Ecs& ecs, Strategy strat) {
       float gear_turn_ratio = (current_gear_ + 1) * 0.5;
       float larger_width = std::max(head_.width, new_track_width);
       float radius = random_int(
-          std::max(larger_width * 1.5f, larger_width * gear_turn_ratio),
+          std::max(larger_width * 2.f, larger_width * gear_turn_ratio),
           larger_width * 5);
       strategy_.reset(new TrackStrategyCircularCurve(head_, new_track_width,
                                                      radius));
