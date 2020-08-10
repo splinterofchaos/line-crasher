@@ -23,7 +23,7 @@ inline constexpr float SHIP_LENGTH = SHIP_NOSE_LENGTH + SHIP_TAIL_LENGTH;
 inline constexpr float SHIP_HALF_WIDTH = 0.5f;
 
 inline constexpr float PLANK_WIDTH = 0.05f;
-inline constexpr auto BROKEN_PLANK_LIFETIME = std::chrono::seconds(2);
+inline constexpr auto BROKEN_PLANK_LIFETIME = std::chrono::seconds(1);
 inline constexpr auto FLAME_LIFETIME = std::chrono::milliseconds(500);
 
 // All entities that can be rendered have a transform that describes their
