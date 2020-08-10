@@ -1,6 +1,7 @@
-#include <SDL2/SDL.h>
 #include <GL/glew.h>
+#include <SDL2/SDL.h>
 #include <SDL2/SDL_opengl.h>
+#include <SDL2/SDL_mixer.h>
 #include <GL/glu.h>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
@@ -371,11 +372,62 @@ void fill_score_digits(std::vector<unsigned int>& score_digits,
   if (score_digits.empty()) score_digits.push_back(0);
 }
 
+class Music {
+  bool playing_ = false;
+  Mix_Music* music_;
+
+public:
+  Music() { }
+
+  ~Music() { Mix_FreeMusic(music_); }
+
+  Error load(const char* file) {
+    music_ = Mix_LoadMUS(file);
+    if (!music_) {
+      return Error(concat_strings("Error loading music: ",
+                                  Mix_GetError()));
+    }
+    return Error();
+  }
+
+  Error fade_in(int ms) {
+    if (playing_) return Error();
+    playing_ = true;
+    int status = Mix_FadeInMusic(music_, -1, 1000);
+    if (status != 0)
+      return Error(concat_strings("Error playing music: ", Mix_GetError()));
+    return Error();
+  }
+
+  void reset() {
+    Mix_PauseMusic();
+    Mix_RewindMusic();
+    playing_ = false;
+  }
+
+  void fade_out(int ms) {
+    Mix_FadeOutMusic(ms);
+    playing_ = false;
+  }
+
+  void set_volume(float t) {
+    Mix_VolumeMusic(MIX_MAX_VOLUME - MIX_MAX_VOLUME * t);
+  }
+};
+
 Error run(bool show_thrust) {
   random_seed();
 
   Graphics gfx;
   if (Error e = gfx.init(WINDOW_WIDTH, WINDOW_HEIGHT); !e.ok) return e;
+
+  if (int status = Mix_OpenAudio(MIX_DEFAULT_FREQUENCY, AUDIO_S16MSB, 2, 512);
+      status != 0)
+    std::cerr << "Error opening audio: " << Mix_GetError() << std::endl;
+  
+  Music music;
+  if (Error e = music.load("art/Speed_Racer.ogg"); !e.ok)
+    std::cerr << e.reason;
 
   GlProgram tex_shader_program;
   if (Error e = contruct_textured_shader(tex_shader_program); !e.ok) return e;
@@ -607,6 +659,8 @@ Error run(bool show_thrust) {
               game.set_manual_thrusters_enabled(false);
               game.set_player_thrust(GEARS[line_data.gear].thrust);
               game.add_score(TRACK_SPACING);
+
+              music.fade_in(1000);
             }
             game.track_gen().delete_plank(game.ecs(), id);
 
@@ -648,6 +702,15 @@ Error run(bool show_thrust) {
     game_end_watch.start_or_reset(!game.manual_thrusters_enabled() &&
                                   game.player_thrust() == 0);
     game_end_watch.consume(new_time - time);
+
+    // Fade or stop the music as the player loses or when they reset.
+    if (game_end_watch.finished()) {
+      music.reset();
+    } else if (game.manual_thrusters_enabled()) {  // reset
+      music.fade_out(1000);
+    } else {
+      music.set_volume(game_end_watch.ratio_consumed());
+    }
 
     // Draw the score.
     fill_score_digits(score_digits, game.score());

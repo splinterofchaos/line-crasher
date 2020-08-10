@@ -41,4 +41,4 @@ obj/main.o : main.cpp *.h
 
 obj/run : obj/main.o obj/math.o obj/graphics.o obj/random.o \
 					obj/line_breaker_shader.o obj/line_breaker_track.o
-	${COMPILER} ${OPS} obj/*.o -lSDL2 -lGL -lGLEW -lGLU -o obj/run
+	${COMPILER} ${OPS} obj/*.o -lSDL2 -lSDL2_mixer -lGL -lGLEW -lGLU -o obj/run
