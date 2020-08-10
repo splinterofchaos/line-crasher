@@ -98,6 +98,11 @@ void draw_object(const Transform& transform,
                  const Color& color,
                  glm::vec3 camera_offset,
                  float zoom) {
+  if (!shader_bindings) {
+    std::cerr << "ERROR: nullptr in draw_opbject." << std::endl;
+    return;
+  }
+
   static const ShaderBindings* last_bindings = nullptr;
   if (last_bindings != shader_bindings) {
     shader_bindings->program->use();
