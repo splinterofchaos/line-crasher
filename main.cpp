@@ -420,7 +420,7 @@ public:
   }
 };
 
-Error run(bool show_thrust) {
+Error run(bool hide_thrust) {
   random_seed();
 
   Graphics gfx;
@@ -641,7 +641,7 @@ Error run(bool show_thrust) {
       static float flames_expected_for_thrust = 0;
       flames_expected_for_thrust += game.player_thrust();
       for (;
-           show_thrust && flames_expected_for_thrust > GEARS[0].thrust / 2.f;
+           !hide_thrust && flames_expected_for_thrust > GEARS[0].thrust / 2.f;
            flames_expected_for_thrust =
               std::max(flames_expected_for_thrust - GEARS[0].thrust, 0.f)) {
         write_flame(game.ecs(), game.broken_plank_pool(), ship_transform,
@@ -745,8 +745,8 @@ Error run(bool show_thrust) {
 }
 
 int main(int argc, char** argv) {
-  bool show_thrust = argc == 2 && strcmp(argv[1], "--show_thrust") == 0;
-  if (Error e = run(show_thrust); !e.ok) {
+  bool hide_thrust = argc == 2 && strcmp(argv[1], "--hide_thrust") == 0;
+  if (Error e = run(hide_thrust); !e.ok) {
     std::cerr << e.reason << std::endl;
     return 1;
   }
