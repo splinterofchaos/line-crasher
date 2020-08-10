@@ -1,8 +1,9 @@
 
 COMPILER = g++
-OPS = -Wall -std=c++2a
+EXTRA =
+OPS = -Wall -std=c++2a ${EXTRA}
 
-test : obj/vec_test obj/stats_test obj/ecs_test
+test : obj/vec_test obj/ecs_test
 run : obj/run
 	./obj/run
 
