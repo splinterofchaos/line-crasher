@@ -104,7 +104,8 @@ Error GlProgram::link() {
 }
 
 Error Graphics::init(int width, int height) {
-  if (SDL_Init(SDL_INIT_VIDEO) < 0) return sdl_error("initializing");
+  if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO) < 0)
+    return sdl_error("initializing");
 
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);  // 4?
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
